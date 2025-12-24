@@ -823,6 +823,31 @@ public partial class MainWindow : Window
             : new SolidColorBrush(Color.FromRgb(102, 102, 102));  // Gray otherwise
     }
 
+    private void BtnSelectAllModules_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var item in _vinList)
+            item.IsSelected = true;
+        dgVinList.Items.Refresh();
+        UpdateSelectedCount();
+    }
+
+    private void BtnDeselectAllModules_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var item in _vinList)
+            item.IsSelected = false;
+        dgVinList.Items.Refresh();
+        UpdateSelectedCount();
+    }
+
+    private void UpdateSelectedCount()
+    {
+        var count = _vinList.Count(v => v.IsSelected);
+        txtSelectedCount.Text = $"{count} selected";
+        txtSelectedCount.Foreground = count > 0
+            ? new SolidColorBrush(Color.FromRgb(0, 255, 170))  // Green when modules selected
+            : new SolidColorBrush(Color.FromRgb(102, 102, 102));  // Gray otherwise
+    }
+
     private async void BtnReadVin_Click(object sender, RoutedEventArgs e)
     {
         if (!_isConnected || _adapter == null)
@@ -874,8 +899,11 @@ public partial class MainWindow : Window
 
         Log($"VIN read complete. {_vinList.Count} module(s) responded.");
 
+        // Update selection count
+        UpdateSelectedCount();
+
         // Switch to VIN tab
-        tabRight.SelectedIndex = 1;
+        tabRight.SelectedIndex = 2;
 
         btnNavReadVin.IsEnabled = true;
     }
@@ -1684,13 +1712,29 @@ public class DtcDisplayItem
 /// <summary>
 /// Display item for VIN module DataGrid binding
 /// </summary>
-public class VinModuleItem
+public class VinModuleItem : System.ComponentModel.INotifyPropertyChanged
 {
-    public bool IsSelected { get; set; }
+    private bool _isSelected;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected != value)
+            {
+                _isSelected = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsSelected)));
+            }
+        }
+    }
+
     public required string ModuleName { get; set; }
     public required string CurrentVin { get; set; }
     public required string Status { get; set; }
     public required FcaModuleDefinition Module { get; init; }
+
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 }
 
 /// <summary>
