@@ -1,3 +1,5 @@
+using FcaDiag.Core.Data;
+
 namespace FcaDiag.Core.Models;
 
 /// <summary>
@@ -19,6 +21,16 @@ public class DiagnosticTroubleCode
     /// Human-readable DTC string (e.g., P0300)
     /// </summary>
     public string DisplayCode => FormatDtcCode(Code);
+
+    /// <summary>
+    /// Description of what this DTC means
+    /// </summary>
+    public string Description => DtcDatabase.GetDescription(DisplayCode);
+
+    /// <summary>
+    /// Category of the DTC (e.g., "Misfire", "O2S", "ABS")
+    /// </summary>
+    public string Category => DtcDatabase.GetCategory(DisplayCode);
 
     /// <summary>
     /// Test failed

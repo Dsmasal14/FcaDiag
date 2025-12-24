@@ -1,5 +1,8 @@
+using System.Collections.ObjectModel;
+using System.Printing;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
@@ -22,10 +25,16 @@ public partial class MainWindow : Window
     private readonly List<double> _voltageHistory = [];
     private readonly Random _random = new();
     private readonly int[] _memoryBlocks = new int[8];
+    private readonly ObservableCollection<DtcDisplayItem> _dtcList = [];
+    private string? _connectedDeviceName;
+    private string? _connectedVin;
 
     public MainWindow()
     {
         InitializeComponent();
+
+        // Bind DTC list
+        dgDtcList.ItemsSource = _dtcList;
 
         // Initialize voltage monitoring timer
         _voltageTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
@@ -65,6 +74,27 @@ public partial class MainWindow : Window
         txtTitle.Text = $"FCA Diagnostics v1.0 - [{status}]";
     }
 
+    private void UpdateConnectionStatus(bool connected, string? deviceName = null)
+    {
+        _isConnected = connected;
+        if (connected)
+        {
+            statusIndicator.Fill = new SolidColorBrush(Color.FromRgb(39, 201, 63)); // Green
+            txtConnectionStatus.Text = "Connected";
+            txtConnectionStatus.Foreground = new SolidColorBrush(Color.FromRgb(39, 201, 63));
+            txtDeviceName.Text = deviceName ?? "Unknown device";
+            btnConnect.Content = "Disconnect";
+        }
+        else
+        {
+            statusIndicator.Fill = new SolidColorBrush(Color.FromRgb(102, 102, 102)); // Gray
+            txtConnectionStatus.Text = "Disconnected";
+            txtConnectionStatus.Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158));
+            txtDeviceName.Text = "No device";
+            btnConnect.Content = "Connect Pod";
+        }
+    }
+
     #region Connection
 
     private async void BtnConnect_Click(object sender, RoutedEventArgs e)
@@ -78,10 +108,11 @@ public partial class MainWindow : Window
                 await _adapter.DisposeAsync();
                 _adapter = null;
             }
-            _isConnected = false;
-            btnConnect.Content = "Connect Pod";
+            UpdateConnectionStatus(false);
             UpdateTitle("Disconnected");
             Log("Disconnected from device.");
+            _dtcList.Clear();
+            txtDtcCount.Text = " (0)";
             return;
         }
 
@@ -92,7 +123,7 @@ public partial class MainWindow : Window
         {
             Title = "Select Device",
             Width = 400,
-            Height = 250,
+            Height = 280,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = this,
             Background = new SolidColorBrush(Color.FromRgb(22, 27, 34))
@@ -103,10 +134,11 @@ public partial class MainWindow : Window
         {
             Text = "Select J2534 Device:",
             Foreground = Brushes.White,
-            Margin = new Thickness(0, 0, 0, 10)
+            FontSize = 14,
+            Margin = new Thickness(0, 0, 0, 15)
         };
-        var combo = new ComboBox { Margin = new Thickness(0, 0, 0, 20) };
-        combo.Items.Add("Demo Mode (Simulated Vehicle)");
+        var combo = new ComboBox { Margin = new Thickness(0, 0, 0, 20), FontSize = 13, Padding = new Thickness(10, 8, 10, 8) };
+        combo.Items.Add("Demo Mode (Simulated 2015 Jeep Grand Cherokee)");
         foreach (var d in _devices)
             combo.Items.Add($"{d.Vendor} - {d.Name}");
         combo.SelectedIndex = 0;
@@ -114,11 +146,13 @@ public partial class MainWindow : Window
         var btnOk = new Button
         {
             Content = "Connect",
-            Width = 100,
-            Padding = new Thickness(10, 5, 10, 5),
+            Width = 120,
+            Padding = new Thickness(15, 10, 15, 10),
             Background = new SolidColorBrush(Color.FromRgb(255, 107, 0)),
             Foreground = Brushes.White,
-            BorderThickness = new Thickness(0)
+            FontWeight = FontWeights.SemiBold,
+            BorderThickness = new Thickness(0),
+            Cursor = System.Windows.Input.Cursors.Hand
         };
         btnOk.Click += (s, ev) => { dialog.DialogResult = true; dialog.Close(); };
 
@@ -139,9 +173,14 @@ public partial class MainWindow : Window
                 // Demo mode
                 _adapter = new MockCanAdapter();
                 await _adapter.ConnectAsync(new ConnectionSettings { AdapterType = "DEMO" });
+                _connectedDeviceName = "Demo Mode";
+                _connectedVin = "1C4RJFAG5FC123456";
                 Log("Protocol: CAN-C detected.");
+                Log("VIN: 1C4RJFAG5FC123456");
+                Log("Vehicle: 2015 Jeep Grand Cherokee");
                 Log("Module Found: PCM (Powertrain Control Module).");
                 Log("Security Access: Granted.");
+                UpdateConnectionStatus(true, "Demo - 2015 Jeep Grand Cherokee");
                 UpdateTitle("Demo Mode - Connected");
             }
             else
@@ -152,13 +191,13 @@ public partial class MainWindow : Window
                     throw new Exception("Connection failed");
 
                 _adapter = j2534;
+                _connectedDeviceName = device.Name;
                 Log($"Connected to {device.Name}");
                 Log($"Firmware: {j2534.FirmwareVersion}");
+                UpdateConnectionStatus(true, device.Name);
                 UpdateTitle($"{device.Name} - Connected");
             }
 
-            _isConnected = true;
-            btnConnect.Content = "Disconnect";
             _voltageTimer.Start();
             Log("Hardware conditions met. Voltage stable.");
         }
@@ -185,7 +224,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        btnReadEprom.IsEnabled = false;
+        btnNavReadEprom.IsEnabled = false;
         Log("Requesting Memory Dump (Range: 0x0000-0xFFFF)...");
 
         // Simulate reading 8 blocks
@@ -198,7 +237,7 @@ public partial class MainWindow : Window
         }
 
         Log("Memory read complete. 32KB transferred.");
-        btnReadEprom.IsEnabled = true;
+        btnNavReadEprom.IsEnabled = true;
     }
 
     private async void BtnWriteEprom_Click(object sender, RoutedEventArgs e)
@@ -214,7 +253,7 @@ public partial class MainWindow : Window
 
         if (result != MessageBoxResult.Yes) return;
 
-        btnWriteEprom.IsEnabled = false;
+        btnNavWriteEprom.IsEnabled = false;
         Log("Preparing to write EPROM...");
         Log("Erasing target memory...");
         await Task.Delay(500);
@@ -226,7 +265,7 @@ public partial class MainWindow : Window
         }
 
         Log("EPROM write complete. Verification passed.");
-        btnWriteEprom.IsEnabled = true;
+        btnNavWriteEprom.IsEnabled = true;
     }
 
     private void BtnSwapHw_Click(object sender, RoutedEventArgs e)
@@ -256,7 +295,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        btnScanModules.IsEnabled = false;
+        btnNavScan.IsEnabled = false;
         Log("Scanning for ECU modules...");
 
         int found = 0;
@@ -276,7 +315,7 @@ public partial class MainWindow : Window
         }
 
         Log($"Scan complete. {found} module(s) responding.");
-        btnScanModules.IsEnabled = true;
+        btnNavScan.IsEnabled = true;
     }
 
     private async void BtnReadDtc_Click(object sender, RoutedEventArgs e)
@@ -287,10 +326,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        btnReadDtc.IsEnabled = false;
+        btnNavDtc.IsEnabled = false;
+        _dtcList.Clear();
         Log("Reading Diagnostic Trouble Codes...");
 
-        int totalDtcs = 0;
         foreach (var module in FcaModuleDatabase.Modules)
         {
             try
@@ -299,16 +338,228 @@ public partial class MainWindow : Window
                 var dtcs = await client.ReadDtcsAsync();
                 foreach (var dtc in dtcs)
                 {
-                    totalDtcs++;
-                    var status = dtc.Confirmed ? "ACTIVE" : "PENDING";
+                    var status = dtc.Confirmed ? "ACTIVE" : dtc.Pending ? "PENDING" : "STORED";
                     Log($"  [{module.ShortName}] {dtc.DisplayCode} - {status}");
+                    Log($"           {dtc.Description}");
+
+                    _dtcList.Add(new DtcDisplayItem
+                    {
+                        DisplayCode = dtc.DisplayCode,
+                        StatusText = status,
+                        Description = dtc.Description,
+                        Category = dtc.Category,
+                        ModuleName = module.ShortName,
+                        IsConfirmed = dtc.Confirmed,
+                        IsPending = dtc.Pending
+                    });
                 }
             }
             catch { }
         }
 
-        Log(totalDtcs > 0 ? $"Found {totalDtcs} DTC(s)." : "No DTCs found.");
-        btnReadDtc.IsEnabled = true;
+        txtDtcCount.Text = $" ({_dtcList.Count})";
+        Log(_dtcList.Count > 0 ? $"Found {_dtcList.Count} DTC(s)." : "No DTCs found.");
+        btnNavDtc.IsEnabled = true;
+    }
+
+    private async void BtnClearDtc_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected || _adapter == null)
+        {
+            MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (_dtcList.Count == 0)
+        {
+            MessageBox.Show("No DTCs to clear.", "Clear DTCs", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var result = MessageBox.Show($"Are you sure you want to clear {_dtcList.Count} DTC(s)?\nThis cannot be undone.",
+            "Clear DTCs", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        btnNavClearDtc.IsEnabled = false;
+        Log("Clearing Diagnostic Trouble Codes...");
+
+        int cleared = 0;
+        foreach (var module in FcaModuleDatabase.Modules)
+        {
+            try
+            {
+                var client = new UdsClient(_adapter, module, 500);
+                var response = await client.ClearDtcsAsync();
+                if (response.IsPositive)
+                {
+                    cleared++;
+                    Log($"  [{module.ShortName}] DTCs cleared.");
+                }
+            }
+            catch { }
+        }
+
+        _dtcList.Clear();
+        txtDtcCount.Text = " (0)";
+        Log($"Clear complete. {cleared} module(s) processed.");
+        btnNavClearDtc.IsEnabled = true;
+    }
+
+    #endregion
+
+    #region PDF Export
+
+    private void BtnPrintDtc_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dtcList.Count == 0)
+        {
+            MessageBox.Show("No DTCs to print. Please read DTCs first.", "Print Report", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            var printDialog = new PrintDialog();
+            if (printDialog.ShowDialog() != true) return;
+
+            // Create the document
+            var flowDoc = CreateDtcReportDocument();
+
+            // Create a paginator
+            var paginator = ((IDocumentPaginatorSource)flowDoc).DocumentPaginator;
+            paginator.PageSize = new Size(printDialog.PrintableAreaWidth, printDialog.PrintableAreaHeight);
+
+            // Print
+            printDialog.PrintDocument(paginator, "DTC Report - FCA Diagnostics");
+
+            Log("DTC report sent to printer.");
+            MessageBox.Show("Report sent to printer successfully.", "Print Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            Log($"Print error: {ex.Message}");
+            MessageBox.Show($"Failed to print: {ex.Message}", "Print Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private FlowDocument CreateDtcReportDocument()
+    {
+        var doc = new FlowDocument
+        {
+            PagePadding = new Thickness(50),
+            FontFamily = new FontFamily("Segoe UI"),
+            FontSize = 12
+        };
+
+        // Title
+        var title = new Paragraph(new Run("DIAGNOSTIC TROUBLE CODE REPORT"))
+        {
+            FontSize = 20,
+            FontWeight = FontWeights.Bold,
+            TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        doc.Blocks.Add(title);
+
+        // Subtitle
+        var subtitle = new Paragraph(new Run("FCA Diagnostics Tool"))
+        {
+            FontSize = 14,
+            Foreground = Brushes.Gray,
+            TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 20)
+        };
+        doc.Blocks.Add(subtitle);
+
+        // Report Info
+        var infoSection = new Section();
+        infoSection.Blocks.Add(new Paragraph(new Run($"Date: {DateTime.Now:yyyy-MM-dd HH:mm:ss}")) { Margin = new Thickness(0, 0, 0, 5) });
+        if (!string.IsNullOrEmpty(_connectedDeviceName))
+            infoSection.Blocks.Add(new Paragraph(new Run($"Device: {_connectedDeviceName}")) { Margin = new Thickness(0, 0, 0, 5) });
+        if (!string.IsNullOrEmpty(_connectedVin))
+            infoSection.Blocks.Add(new Paragraph(new Run($"VIN: {_connectedVin}")) { Margin = new Thickness(0, 0, 0, 5) });
+        infoSection.Blocks.Add(new Paragraph(new Run($"Total DTCs: {_dtcList.Count}")) { Margin = new Thickness(0, 0, 0, 20) });
+        doc.Blocks.Add(infoSection);
+
+        // Create table
+        var table = new Table
+        {
+            CellSpacing = 0,
+            BorderBrush = Brushes.Black,
+            BorderThickness = new Thickness(1)
+        };
+
+        // Define columns
+        table.Columns.Add(new TableColumn { Width = new GridLength(80) });
+        table.Columns.Add(new TableColumn { Width = new GridLength(70) });
+        table.Columns.Add(new TableColumn { Width = new GridLength(70) });
+        table.Columns.Add(new TableColumn { Width = GridLength.Auto });
+
+        var rowGroup = new TableRowGroup();
+
+        // Header row
+        var headerRow = new TableRow { Background = Brushes.LightGray };
+        headerRow.Cells.Add(CreateTableCell("Code", true));
+        headerRow.Cells.Add(CreateTableCell("Module", true));
+        headerRow.Cells.Add(CreateTableCell("Status", true));
+        headerRow.Cells.Add(CreateTableCell("Description", true));
+        rowGroup.Rows.Add(headerRow);
+
+        // Data rows
+        foreach (var dtc in _dtcList)
+        {
+            var row = new TableRow();
+            row.Cells.Add(CreateTableCell(dtc.DisplayCode, false, FontWeights.Bold));
+            row.Cells.Add(CreateTableCell(dtc.ModuleName ?? ""));
+            row.Cells.Add(CreateTableCell(dtc.StatusText, false, FontWeights.Normal,
+                dtc.IsConfirmed ? Brushes.Red : dtc.IsPending ? Brushes.Orange : Brushes.Black));
+            row.Cells.Add(CreateTableCell(dtc.Description));
+            rowGroup.Rows.Add(row);
+        }
+
+        table.RowGroups.Add(rowGroup);
+        doc.Blocks.Add(table);
+
+        // Footer
+        var footer = new Paragraph(new Run("\n\nGenerated by FCA Diagnostics Tool - Spot On Auto Diagnostics"))
+        {
+            FontSize = 10,
+            Foreground = Brushes.Gray,
+            TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(0, 30, 0, 0)
+        };
+        doc.Blocks.Add(footer);
+
+        return doc;
+    }
+
+    private static TableCell CreateTableCell(string text, bool isHeader = false, FontWeight? weight = null, Brush? foreground = null)
+    {
+        var paragraph = new Paragraph(new Run(text))
+        {
+            Margin = new Thickness(5)
+        };
+
+        if (isHeader)
+        {
+            paragraph.FontWeight = FontWeights.Bold;
+        }
+        else if (weight.HasValue)
+        {
+            paragraph.FontWeight = weight.Value;
+        }
+
+        if (foreground != null)
+        {
+            paragraph.Foreground = foreground;
+        }
+
+        return new TableCell(paragraph)
+        {
+            BorderBrush = Brushes.LightGray,
+            BorderThickness = new Thickness(0, 0, 1, 1)
+        };
     }
 
     #endregion
@@ -324,6 +575,7 @@ public partial class MainWindow : Window
         if (_voltageHistory.Count > 100)
             _voltageHistory.RemoveAt(0);
 
+        txtVoltage.Text = $" - {voltage:F1} V";
         DrawVoltageGraph();
     }
 
@@ -416,6 +668,17 @@ public partial class MainWindow : Window
                 Canvas.SetTop(targetBar, height - barHeight * 0.85);
                 canvasMemory.Children.Add(targetBar);
             }
+
+            // Block label
+            var label = new TextBlock
+            {
+                Text = $"B{i + 1}",
+                FontSize = 9,
+                Foreground = new SolidColorBrush(Color.FromRgb(102, 102, 102))
+            };
+            Canvas.SetLeft(label, x + barWidth / 4 - 5);
+            Canvas.SetTop(label, height - 15);
+            canvasMemory.Children.Add(label);
         }
     }
 
@@ -430,7 +693,23 @@ public partial class MainWindow : Window
     }
 }
 
-// Mock adapter for demo mode
+/// <summary>
+/// Display item for DTC DataGrid binding
+/// </summary>
+public class DtcDisplayItem
+{
+    public required string DisplayCode { get; init; }
+    public required string StatusText { get; init; }
+    public required string Description { get; init; }
+    public string? Category { get; init; }
+    public string? ModuleName { get; init; }
+    public bool IsConfirmed { get; init; }
+    public bool IsPending { get; init; }
+}
+
+/// <summary>
+/// Mock adapter for demo mode
+/// </summary>
 public class MockCanAdapter : ICanAdapter
 {
     private readonly Random _random = new();
@@ -462,6 +741,7 @@ public class MockCanAdapter : ICanAdapter
             UdsServiceId.DiagnosticSessionControl when data.Length >= 2 => [0x50, data[1], 0x00, 0x19, 0x01, 0xF4],
             UdsServiceId.ReadDtcInformation when rxId == 0x7E8 => [0x59, 0x02, 0xFF, 0x03, 0x00, 0x00, 0x08, 0x01, 0x71, 0x00, 0x08],
             UdsServiceId.ReadDtcInformation => [0x59, 0x02, 0xFF],
+            UdsServiceId.ClearDiagnosticInformation => [0x54],
             _ => null
         };
 
