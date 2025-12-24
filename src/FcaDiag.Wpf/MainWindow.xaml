@@ -205,9 +205,9 @@
                 </Grid.RowDefinitions>
 
                 <!-- Logo/Title -->
-                <StackPanel Grid.Row="0" Margin="15,20,15,10">
-                    <TextBlock Text="STELLAFLASH" FontSize="16" FontWeight="Bold" Foreground="#FFFF6B00"/>
-                    <TextBlock Text="Vehicle Diagnostic Tool" FontSize="11" Foreground="#FF8B949E" Margin="0,3,0,0"/>
+                <StackPanel Grid.Row="0" Margin="10,15,10,10">
+                    <Image Source="Assets/logo.png" Height="50" HorizontalAlignment="Left" Margin="0,0,0,5"/>
+                    <TextBlock Text="FCA Module Programming" FontSize="10" Foreground="#FF8B949E" Margin="5,0,0,0"/>
                 </StackPanel>
 
                 <!-- Connection Panel -->
@@ -232,6 +232,14 @@
                             Click="BtnReadDtc_Click"/>
                     <Button x:Name="btnNavClearDtc" Content="Clear DTCs" Style="{StaticResource SidebarButton}"
                             Click="BtnClearDtc_Click"/>
+
+                    <TextBlock Text="VIN EDITOR" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
+                    <Button x:Name="btnNavReadVin" Content="Read VIN" Style="{StaticResource SidebarButton}"
+                            Click="BtnReadVin_Click"/>
+                    <Button x:Name="btnNavClearVin" Content="Clear VIN" Style="{StaticResource SidebarButton}"
+                            Click="BtnClearVin_Click"/>
+                    <Button x:Name="btnNavWriteVin" Content="Write VIN" Style="{StaticResource SidebarButton}"
+                            Click="BtnWriteVin_Click"/>
 
                     <TextBlock Text="EFD FILES" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
                     <Button x:Name="btnNavLoadEfd" Content="Load EFD File" Style="{StaticResource SidebarButton}"
@@ -372,6 +380,70 @@
                                             Padding="15,8" Click="BtnClearDtc_Click"/>
                                     <Button Content="Print Report" Style="{StaticResource OrangeButton}"
                                             Padding="15,8" Margin="10,0,0,0" Click="BtnPrintDtc_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </TabItem>
+
+                        <!-- VIN Tab -->
+                        <TabItem Header="VIN Editor">
+                            <Grid Margin="0,10,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Text="VEHICLE IDENTIFICATION NUMBER" Foreground="#FF8B949E" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                                <!-- VIN Input Panel -->
+                                <Border Grid.Row="1" Background="#FF0D1117" CornerRadius="4" Padding="12" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="New VIN (17 characters):" Foreground="#FF8B949E" FontSize="11" Margin="0,0,0,5"/>
+                                        <TextBox x:Name="txtVinInput"
+                                                 FontFamily="Consolas"
+                                                 FontSize="16"
+                                                 FontWeight="Bold"
+                                                 MaxLength="17"
+                                                 CharacterCasing="Upper"
+                                                 Background="#FF21262D"
+                                                 Foreground="#FF00FFAA"
+                                                 BorderBrush="#FF30363D"
+                                                 Padding="10,8"
+                                                 TextChanged="TxtVinInput_TextChanged"/>
+                                        <TextBlock x:Name="txtVinCharCount" Text="0/17 characters" Foreground="#FF666666" FontSize="10" Margin="0,5,0,0"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Module VIN List -->
+                                <DataGrid Grid.Row="2" x:Name="dgVinList"
+                                          AutoGenerateColumns="False"
+                                          IsReadOnly="True"
+                                          CanUserAddRows="False"
+                                          CanUserDeleteRows="False"
+                                          CanUserReorderColumns="False">
+                                    <DataGrid.Columns>
+                                        <DataGridCheckBoxColumn Header="" Binding="{Binding IsSelected}" Width="30"/>
+                                        <DataGridTextColumn Header="Module" Binding="{Binding ModuleName}" Width="100"/>
+                                        <DataGridTextColumn Header="Current VIN" Binding="{Binding CurrentVin}" Width="*">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="FontFamily" Value="Consolas"/>
+                                                    <Setter Property="Foreground" Value="#FF00FFAA"/>
+                                                </Style>
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="80"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+
+                                <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                                    <Button Content="Read All" Style="{StaticResource TealButton}"
+                                            Padding="15,8" Click="BtnReadVin_Click"/>
+                                    <Button Content="Clear Selected" Style="{StaticResource SidebarButton}"
+                                            Padding="15,8" Margin="10,0,0,0" Click="BtnClearVin_Click"/>
+                                    <Button x:Name="btnWriteVin" Content="Write to Selected" Style="{StaticResource OrangeButton}"
+                                            Padding="15,8" Margin="10,0,0,0" Click="BtnWriteVin_Click"/>
                                 </StackPanel>
                             </Grid>
                         </TabItem>

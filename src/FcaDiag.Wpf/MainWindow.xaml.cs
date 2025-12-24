@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private readonly Random _random = new();
     private readonly int[] _memoryBlocks = new int[8];
     private readonly ObservableCollection<DtcDisplayItem> _dtcList = [];
+    private readonly ObservableCollection<VinModuleItem> _vinList = [];
     private string? _connectedDeviceName;
     private string? _connectedVin;
     private EfdFile? _loadedEfd;
@@ -38,6 +39,9 @@ public partial class MainWindow : Window
 
         // Bind DTC list
         dgDtcList.ItemsSource = _dtcList;
+
+        // Bind VIN list
+        dgVinList.ItemsSource = _vinList;
 
         // Initialize voltage monitoring timer
         _voltageTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
@@ -796,6 +800,260 @@ public partial class MainWindow : Window
 
     #endregion
 
+    #region VIN Operations
+
+    private void TxtVinInput_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        var length = txtVinInput.Text.Length;
+        txtVinCharCount.Text = $"{length}/17 characters";
+        txtVinCharCount.Foreground = length == 17
+            ? new SolidColorBrush(Color.FromRgb(39, 201, 63))  // Green when valid
+            : new SolidColorBrush(Color.FromRgb(102, 102, 102));  // Gray otherwise
+    }
+
+    private async void BtnReadVin_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected || _adapter == null)
+        {
+            MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        btnNavReadVin.IsEnabled = false;
+        _vinList.Clear();
+        Log("Reading VIN from all modules...");
+
+        foreach (var module in FcaModuleDatabase.Modules)
+        {
+            try
+            {
+                var client = new UdsClient(_adapter, module, 500);
+
+                // First check if module responds
+                var testerResponse = await client.TesterPresentAsync();
+                if (!testerResponse.IsPositive) continue;
+
+                // Read VIN
+                var vin = await client.ReadVinAsync();
+                var status = "OK";
+
+                if (string.IsNullOrEmpty(vin) || vin.All(c => c == '\0' || c == ' '))
+                {
+                    vin = "(empty)";
+                    status = "EMPTY";
+                }
+
+                Log($"  [{module.ShortName}] VIN: {vin}");
+
+                _vinList.Add(new VinModuleItem
+                {
+                    IsSelected = true,
+                    ModuleName = module.ShortName,
+                    CurrentVin = vin,
+                    Status = status,
+                    Module = module
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"  [{module.ShortName}] Error: {ex.Message}");
+            }
+        }
+
+        Log($"VIN read complete. {_vinList.Count} module(s) responded.");
+
+        // Switch to VIN tab
+        tabRight.SelectedIndex = 1;
+
+        btnNavReadVin.IsEnabled = true;
+    }
+
+    private async void BtnClearVin_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected || _adapter == null)
+        {
+            MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var selectedModules = _vinList.Where(v => v.IsSelected).ToList();
+        if (selectedModules.Count == 0)
+        {
+            MessageBox.Show("Please select at least one module.", "No Selection", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"Are you sure you want to CLEAR the VIN from {selectedModules.Count} module(s)?\n\n" +
+            "This will write zeros to the VIN field.\n" +
+            "This operation requires security access.",
+            "Confirm Clear VIN",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        btnNavClearVin.IsEnabled = false;
+        Log($"Clearing VIN from {selectedModules.Count} module(s)...");
+
+        int cleared = 0;
+        foreach (var item in selectedModules)
+        {
+            try
+            {
+                var client = new UdsClient(_adapter, item.Module, 1000);
+
+                // Start extended session
+                await client.StartSessionAsync(DiagnosticSessionType.Extended);
+                await Task.Delay(50);
+
+                // Security access (simplified - real implementation needs proper key calculation)
+                // await client.SecurityAccessAsync(0x01, seed => seed); // Placeholder
+
+                // Clear VIN
+                var response = await client.ClearVinAsync();
+
+                if (response.IsPositive)
+                {
+                    cleared++;
+                    item.CurrentVin = "(cleared)";
+                    item.Status = "CLEARED";
+                    Log($"  [{item.ModuleName}] VIN cleared.");
+                }
+                else
+                {
+                    item.Status = "FAILED";
+                    Log($"  [{item.ModuleName}] Clear failed: {response.NegativeResponseCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                item.Status = "ERROR";
+                Log($"  [{item.ModuleName}] Error: {ex.Message}");
+            }
+        }
+
+        // Refresh the grid
+        dgVinList.Items.Refresh();
+
+        Log($"Clear complete. {cleared}/{selectedModules.Count} module(s) cleared.");
+        btnNavClearVin.IsEnabled = true;
+    }
+
+    private async void BtnWriteVin_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected || _adapter == null)
+        {
+            MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var newVin = txtVinInput.Text.Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(newVin) || newVin.Length != 17)
+        {
+            MessageBox.Show("Please enter a valid 17-character VIN.", "Invalid VIN", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        // Basic VIN validation
+        if (!IsValidVin(newVin))
+        {
+            MessageBox.Show("The VIN contains invalid characters.\n\nVIN can only contain: A-Z (except I, O, Q) and 0-9",
+                "Invalid VIN", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var selectedModules = _vinList.Where(v => v.IsSelected).ToList();
+        if (selectedModules.Count == 0)
+        {
+            MessageBox.Show("Please select at least one module.", "No Selection", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"Are you sure you want to write this VIN to {selectedModules.Count} module(s)?\n\n" +
+            $"New VIN: {newVin}\n\n" +
+            "WARNING: Writing an incorrect VIN may cause vehicle systems to malfunction.\n" +
+            "This operation requires security access.",
+            "Confirm Write VIN",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        btnNavWriteVin.IsEnabled = false;
+        btnWriteVin.IsEnabled = false;
+        Log($"Writing VIN '{newVin}' to {selectedModules.Count} module(s)...");
+
+        int written = 0;
+        foreach (var item in selectedModules)
+        {
+            try
+            {
+                var client = new UdsClient(_adapter, item.Module, 1000);
+
+                // Start extended session
+                await client.StartSessionAsync(DiagnosticSessionType.Extended);
+                await Task.Delay(50);
+
+                // Security access (simplified - real implementation needs proper key calculation)
+                // await client.SecurityAccessAsync(0x01, seed => seed); // Placeholder
+
+                // Write VIN
+                var response = await client.WriteVinAsync(newVin);
+
+                if (response.IsPositive)
+                {
+                    written++;
+                    item.CurrentVin = newVin;
+                    item.Status = "WRITTEN";
+                    Log($"  [{item.ModuleName}] VIN written successfully.");
+                }
+                else
+                {
+                    item.Status = "FAILED";
+                    Log($"  [{item.ModuleName}] Write failed: {response.NegativeResponseCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                item.Status = "ERROR";
+                Log($"  [{item.ModuleName}] Error: {ex.Message}");
+            }
+        }
+
+        // Refresh the grid
+        dgVinList.Items.Refresh();
+
+        Log($"Write complete. {written}/{selectedModules.Count} module(s) updated.");
+
+        if (written > 0)
+        {
+            _connectedVin = newVin;
+        }
+
+        btnNavWriteVin.IsEnabled = true;
+        btnWriteVin.IsEnabled = true;
+    }
+
+    private static bool IsValidVin(string vin)
+    {
+        if (string.IsNullOrEmpty(vin) || vin.Length != 17)
+            return false;
+
+        // VIN characters: A-Z (except I, O, Q) and 0-9
+        foreach (var c in vin)
+        {
+            if (c >= '0' && c <= '9') continue;
+            if (c >= 'A' && c <= 'Z' && c != 'I' && c != 'O' && c != 'Q') continue;
+            return false;
+        }
+
+        return true;
+    }
+
+    #endregion
+
     #region Voltage Graph
 
     private void VoltageTimer_Tick(object? sender, EventArgs e)
@@ -940,12 +1198,33 @@ public class DtcDisplayItem
 }
 
 /// <summary>
+/// Display item for VIN module DataGrid binding
+/// </summary>
+public class VinModuleItem
+{
+    public bool IsSelected { get; set; }
+    public required string ModuleName { get; set; }
+    public required string CurrentVin { get; set; }
+    public required string Status { get; set; }
+    public required FcaModuleDefinition Module { get; init; }
+}
+
+/// <summary>
 /// Mock adapter for demo mode
 /// </summary>
 public class MockCanAdapter : ICanAdapter
 {
     private readonly Random _random = new();
     private readonly HashSet<uint> _respondingModules = [0x7E8, 0x7E9, 0x7EA, 0x768, 0x76A, 0x728];
+    private readonly Dictionary<uint, string> _moduleVins = new()
+    {
+        [0x7E8] = "1C4RJFAG5FC123456",  // PCM
+        [0x7E9] = "1C4RJFAG5FC123456",  // TCM
+        [0x7EA] = "1C4RJFAG5FC123456",  // ABS
+        [0x768] = "1C4RJFAG5FC123456",  // BCM
+        [0x76A] = "1C4RJFAG5FC123456",  // IPC
+        [0x728] = "1C4RJFAG5FC123456"   // RADIO
+    };
 
     public bool IsConnected { get; private set; }
 
@@ -974,10 +1253,46 @@ public class MockCanAdapter : ICanAdapter
             UdsServiceId.ReadDtcInformation when rxId == 0x7E8 => [0x59, 0x02, 0xFF, 0x03, 0x00, 0x00, 0x08, 0x01, 0x71, 0x00, 0x08],
             UdsServiceId.ReadDtcInformation => [0x59, 0x02, 0xFF],
             UdsServiceId.ClearDiagnosticInformation => [0x54],
+            UdsServiceId.ReadDataByIdentifier when data.Length >= 3 => HandleReadDataByIdentifier(rxId, data),
+            UdsServiceId.WriteDataByIdentifier when data.Length >= 3 => HandleWriteDataByIdentifier(rxId, data),
             _ => null
         };
 
         return Task.FromResult(response);
+    }
+
+    private byte[]? HandleReadDataByIdentifier(uint rxId, byte[] data)
+    {
+        var did = (ushort)((data[1] << 8) | data[2]);
+
+        // VIN read (DID 0xF190)
+        if (did == 0xF190 && _moduleVins.TryGetValue(rxId, out var vin))
+        {
+            var response = new byte[2 + 17]; // Service ID + DID + 17 bytes VIN
+            response[0] = 0x62; // Positive response
+            response[1] = data[1];
+            response[2] = data[2];
+            var vinBytes = System.Text.Encoding.ASCII.GetBytes(vin.PadRight(17));
+            Array.Copy(vinBytes, 0, response, 3, 17);
+            return response;
+        }
+
+        return null;
+    }
+
+    private byte[]? HandleWriteDataByIdentifier(uint rxId, byte[] data)
+    {
+        var did = (ushort)((data[1] << 8) | data[2]);
+
+        // VIN write (DID 0xF190)
+        if (did == 0xF190 && data.Length >= 20) // 3 bytes header + 17 bytes VIN
+        {
+            var newVin = System.Text.Encoding.ASCII.GetString(data, 3, 17).Trim('\0');
+            _moduleVins[rxId] = newVin;
+            return [0x6E, data[1], data[2]]; // Positive response
+        }
+
+        return null;
     }
 
     public ValueTask DisposeAsync() { IsConnected = false; return ValueTask.CompletedTask; }

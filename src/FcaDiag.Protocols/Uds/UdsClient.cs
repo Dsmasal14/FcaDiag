@@ -141,6 +141,40 @@ public class UdsClient : IDiagnosticService
         return await SendRequestAsync(UdsServiceId.TesterPresent, request, cancellationToken);
     }
 
+    /// <summary>
+    /// Reads the VIN from the ECU (DID 0xF190)
+    /// </summary>
+    public async Task<string?> ReadVinAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await ReadDataByIdentifierAsync(0xF190, cancellationToken);
+        if (response.IsPositive && response.Data.Length >= 19) // 2 bytes DID + 17 bytes VIN
+        {
+            return System.Text.Encoding.ASCII.GetString(response.Data, 2, 17).Trim('\0', ' ');
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Writes a VIN to the ECU (DID 0xF190). Requires security access and extended session.
+    /// </summary>
+    public async Task<UdsResponse> WriteVinAsync(string vin, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(vin) || vin.Length != 17)
+            return UdsResponse.Negative(UdsServiceId.WriteDataByIdentifier, NegativeResponseCode.IncorrectMessageLengthOrInvalidFormat, []);
+
+        var vinBytes = System.Text.Encoding.ASCII.GetBytes(vin.ToUpperInvariant());
+        return await WriteDataByIdentifierAsync(0xF190, vinBytes, cancellationToken);
+    }
+
+    /// <summary>
+    /// Clears the VIN from the ECU by writing zeros (DID 0xF190). Requires security access.
+    /// </summary>
+    public async Task<UdsResponse> ClearVinAsync(CancellationToken cancellationToken = default)
+    {
+        var emptyVin = new byte[17]; // 17 zeros
+        return await WriteDataByIdentifierAsync(0xF190, emptyVin, cancellationToken);
+    }
+
     private async Task<UdsResponse> SendRequestAsync(UdsServiceId serviceId, byte[] request, CancellationToken cancellationToken)
     {
         var response = await _adapter.TransactAsync(_txId, _rxId, request, _timeoutMs, cancellationToken);
