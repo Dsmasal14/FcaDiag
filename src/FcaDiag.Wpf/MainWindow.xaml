@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="FCA Diagnostics Tool - [Disconnected]"
+        Title="StellaFlash - [Disconnected]"
         Height="800" Width="1400"
         MinHeight="700" MinWidth="1200"
         WindowStartupLocation="CenterScreen"
@@ -206,7 +206,7 @@
 
                 <!-- Logo/Title -->
                 <StackPanel Grid.Row="0" Margin="15,20,15,10">
-                    <TextBlock Text="FCA DIAGNOSTICS" FontSize="16" FontWeight="Bold" Foreground="#FFFF6B00"/>
+                    <TextBlock Text="STELLAFLASH" FontSize="16" FontWeight="Bold" Foreground="#FFFF6B00"/>
                     <TextBlock Text="Vehicle Diagnostic Tool" FontSize="11" Foreground="#FF8B949E" Margin="0,3,0,0"/>
                 </StackPanel>
 
@@ -278,7 +278,7 @@
                         <Ellipse Width="12" Height="12" Fill="#FFFFBD2E" Margin="0,0,5,0"/>
                         <Ellipse Width="12" Height="12" Fill="#FF27C93F"/>
                     </StackPanel>
-                    <TextBlock x:Name="txtTitle" Text="FCA Diagnostics v1.0 - [Disconnected]"
+                    <TextBlock x:Name="txtTitle" Text="StellaFlash v1.0 - [Disconnected]"
                                Foreground="White" FontSize="13" HorizontalAlignment="Center"/>
                 </Grid>
             </Border>
