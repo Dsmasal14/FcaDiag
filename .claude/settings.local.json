@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(del \"C:\\\\SOA\\\\cursor\\\\src\\\\FcaDiag.Core\\\\Class1.cs\" \"C:\\\\SOA\\\\cursor\\\\src\\\\FcaDiag.Protocols\\\\Class1.cs\")",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(tree /F \"C:\\\\SOA\\\\cursor\")",
+      "Bash(dotnet run:*)",
+      "Bash(git init:*)",
+      "Bash(dotnet new:*)",
+      "Bash(dotnet sln:*)",
+      "Bash(dotnet add:*)"
+    ]
+  }
+}
