@@ -1,4 +1,5 @@
 using FcaDiag.Core.Enums;
+using FcaDiag.Core.Interfaces;
 using FcaDiag.Core.Models;
 using FcaDiag.J2534;
 using FcaDiag.Protocols.Transport;
@@ -10,62 +11,84 @@ class Program
 {
     static async Task Main(string[] args)
     {
+        var isDemoMode = args.Contains("--demo") || args.Contains("-d");
+
         System.Console.WriteLine("FCA Diagnostics Tool");
-        System.Console.WriteLine("====================\n");
+        System.Console.WriteLine("====================");
+        if (isDemoMode)
+            System.Console.WriteLine("        [DEMO MODE]");
+        System.Console.WriteLine();
 
-        // Detect J2534 devices
-        System.Console.WriteLine("Scanning for J2534 devices...\n");
-        var devices = J2534DeviceDiscovery.GetDevices();
+        ICanAdapter adapter;
 
-        if (devices.Count == 0)
+        if (isDemoMode)
         {
-            System.Console.WriteLine("No J2534 devices found.");
-            System.Console.WriteLine("Install a J2534-compatible adapter driver to enable vehicle communication.\n");
-            ShowModuleInfo();
-            return;
+            System.Console.WriteLine("Starting demo mode with simulated vehicle...\n");
+            adapter = new MockCanAdapter();
+            await adapter.ConnectAsync(new ConnectionSettings { AdapterType = "DEMO" });
+            System.Console.WriteLine("Connected to simulated 2015 Jeep Grand Cherokee");
+            System.Console.WriteLine("  VIN: 1C4RJFAG5FC123456");
+            System.Console.WriteLine("  Odometer: 87,432 km");
         }
-
-        System.Console.WriteLine($"Found {devices.Count} J2534 device(s):\n");
-        for (int i = 0; i < devices.Count; i++)
+        else
         {
-            System.Console.WriteLine($"  [{i + 1}] {devices[i].Vendor} - {devices[i].Name}");
-            System.Console.WriteLine($"      DLL: {devices[i].DllPath}");
+            // Detect J2534 devices
+            System.Console.WriteLine("Scanning for J2534 devices...\n");
+            var devices = J2534DeviceDiscovery.GetDevices();
+
+            if (devices.Count == 0)
+            {
+                System.Console.WriteLine("No J2534 devices found.");
+                System.Console.WriteLine("Install a J2534-compatible adapter driver to enable vehicle communication.");
+                System.Console.WriteLine("\nTip: Run with --demo flag to preview the tool without hardware.\n");
+                ShowModuleInfo();
+                return;
+            }
+
+            System.Console.WriteLine($"Found {devices.Count} J2534 device(s):\n");
+            for (int i = 0; i < devices.Count; i++)
+            {
+                System.Console.WriteLine($"  [{i + 1}] {devices[i].Vendor} - {devices[i].Name}");
+                System.Console.WriteLine($"      DLL: {devices[i].DllPath}");
+            }
+
+            System.Console.WriteLine("\n" + new string('-', 60));
+            System.Console.Write("\nSelect device (1-{0}) or 0 to exit: ", devices.Count);
+
+            if (!int.TryParse(System.Console.ReadLine(), out int selection) || selection < 0 || selection > devices.Count)
+            {
+                System.Console.WriteLine("Invalid selection.");
+                return;
+            }
+
+            if (selection == 0)
+                return;
+
+            var selectedDevice = devices[selection - 1];
+            System.Console.WriteLine($"\nConnecting to {selectedDevice.Name}...");
+
+            var j2534Adapter = new J2534Adapter(selectedDevice);
+            var settings = new ConnectionSettings
+            {
+                AdapterType = "ISO15765",
+                Bitrate = 500000,
+                TimeoutMs = 1000
+            };
+
+            if (!await j2534Adapter.ConnectAsync(settings))
+            {
+                System.Console.WriteLine("Failed to connect to device.");
+                System.Console.WriteLine("Make sure the device is connected and no other software is using it.");
+                return;
+            }
+
+            System.Console.WriteLine("Connected!");
+            System.Console.WriteLine($"  Firmware: {j2534Adapter.FirmwareVersion}");
+            System.Console.WriteLine($"  DLL: {j2534Adapter.DllVersion}");
+            System.Console.WriteLine($"  API: {j2534Adapter.ApiVersion}");
+
+            adapter = j2534Adapter;
         }
-
-        System.Console.WriteLine("\n" + new string('-', 60));
-        System.Console.Write("\nSelect device (1-{0}) or 0 to exit: ", devices.Count);
-
-        if (!int.TryParse(System.Console.ReadLine(), out int selection) || selection < 0 || selection > devices.Count)
-        {
-            System.Console.WriteLine("Invalid selection.");
-            return;
-        }
-
-        if (selection == 0)
-            return;
-
-        var selectedDevice = devices[selection - 1];
-        System.Console.WriteLine($"\nConnecting to {selectedDevice.Name}...");
-
-        await using var adapter = new J2534Adapter(selectedDevice);
-        var settings = new ConnectionSettings
-        {
-            AdapterType = "ISO15765",
-            Bitrate = 500000,
-            TimeoutMs = 1000
-        };
-
-        if (!await adapter.ConnectAsync(settings))
-        {
-            System.Console.WriteLine("Failed to connect to device.");
-            System.Console.WriteLine("Make sure the device is connected and no other software is using it.");
-            return;
-        }
-
-        System.Console.WriteLine("Connected!");
-        System.Console.WriteLine($"  Firmware: {adapter.FirmwareVersion}");
-        System.Console.WriteLine($"  DLL: {adapter.DllVersion}");
-        System.Console.WriteLine($"  API: {adapter.ApiVersion}");
 
         System.Console.WriteLine("\n" + new string('-', 60));
         System.Console.WriteLine("\nAvailable commands:");
@@ -75,6 +98,13 @@ class Program
         System.Console.WriteLine("  info    - Show module information");
         System.Console.WriteLine("  exit    - Exit program");
 
+        await RunCommandLoop(adapter);
+
+        await adapter.DisposeAsync();
+    }
+
+    static async Task RunCommandLoop(ICanAdapter adapter)
+    {
         while (true)
         {
             System.Console.Write("\n> ");
@@ -97,6 +127,8 @@ class Program
                 case "exit":
                 case "quit":
                 case "q":
+                case null:
+                case "":
                     return;
                 default:
                     System.Console.WriteLine("Unknown command. Type 'info' for help.");
@@ -105,7 +137,7 @@ class Program
         }
     }
 
-    static async Task ScanModulesAsync(J2534Adapter adapter)
+    static async Task ScanModulesAsync(ICanAdapter adapter)
     {
         System.Console.WriteLine("\nScanning for modules...\n");
 
@@ -113,9 +145,6 @@ class Program
 
         foreach (var module in FcaModuleDatabase.Modules)
         {
-            // Setup filter for this module
-            adapter.SetupFlowControlFilter(module.RequestId, module.ResponseId);
-
             var client = new UdsClient(adapter, module);
 
             try
@@ -136,7 +165,7 @@ class Program
         System.Console.WriteLine($"\nFound {foundModules.Count} responding module(s).");
     }
 
-    static async Task ReadVinAsync(J2534Adapter adapter)
+    static async Task ReadVinAsync(ICanAdapter adapter)
     {
         var pcm = FcaModuleDatabase.GetModule(FcaModuleType.PCM);
         if (pcm == null)
@@ -145,7 +174,6 @@ class Program
             return;
         }
 
-        adapter.SetupFlowControlFilter(pcm.RequestId, pcm.ResponseId);
         var client = new UdsClient(adapter, pcm);
 
         System.Console.WriteLine("\nReading VIN from PCM...");
@@ -180,7 +208,7 @@ class Program
         }
     }
 
-    static async Task ReadAllDtcsAsync(J2534Adapter adapter)
+    static async Task ReadAllDtcsAsync(ICanAdapter adapter)
     {
         System.Console.WriteLine("\nReading DTCs from all modules...\n");
 
@@ -188,7 +216,6 @@ class Program
 
         foreach (var module in FcaModuleDatabase.Modules)
         {
-            adapter.SetupFlowControlFilter(module.RequestId, module.ResponseId);
             var client = new UdsClient(adapter, module);
 
             try
