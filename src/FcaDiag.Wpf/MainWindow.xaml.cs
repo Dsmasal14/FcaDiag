@@ -12,6 +12,7 @@ using FcaDiag.Core.Interfaces;
 using FcaDiag.Core.Models;
 using FcaDiag.J2534;
 using FcaDiag.J2534.Native;
+using FcaDiag.Protocols.Security;
 using FcaDiag.Protocols.Transport;
 using FcaDiag.Protocols.Uds;
 using Microsoft.Win32;
@@ -915,11 +916,24 @@ public partial class MainWindow : Window
                 var client = new UdsClient(_adapter, item.Module, 1000);
 
                 // Start extended session
+                Log($"  [{item.ModuleName}] Starting extended session...");
                 await client.StartSessionAsync(DiagnosticSessionType.Extended);
                 await Task.Delay(50);
 
-                // Security access (simplified - real implementation needs proper key calculation)
-                // await client.SecurityAccessAsync(0x01, seed => seed); // Placeholder
+                // Security access for VIN operations
+                Log($"  [{item.ModuleName}] Requesting security access...");
+                var securityResponse = await client.SecurityAccessAsync(
+                    FcaSecurityAccess.LevelVinAccess,
+                    FcaSecurityAccess.GetKeyCalculator(FcaSecurityAccess.LevelVinAccess));
+
+                if (!securityResponse.IsPositive)
+                {
+                    item.Status = "SEC FAIL";
+                    Log($"  [{item.ModuleName}] Security access denied: {securityResponse.NegativeResponseCode}");
+                    continue;
+                }
+
+                Log($"  [{item.ModuleName}] Security access granted. Clearing VIN...");
 
                 // Clear VIN
                 var response = await client.ClearVinAsync();
@@ -929,7 +943,7 @@ public partial class MainWindow : Window
                     cleared++;
                     item.CurrentVin = "(cleared)";
                     item.Status = "CLEARED";
-                    Log($"  [{item.ModuleName}] VIN cleared.");
+                    Log($"  [{item.ModuleName}] VIN cleared successfully.");
                 }
                 else
                 {
@@ -1004,11 +1018,24 @@ public partial class MainWindow : Window
                 var client = new UdsClient(_adapter, item.Module, 1000);
 
                 // Start extended session
+                Log($"  [{item.ModuleName}] Starting extended session...");
                 await client.StartSessionAsync(DiagnosticSessionType.Extended);
                 await Task.Delay(50);
 
-                // Security access (simplified - real implementation needs proper key calculation)
-                // await client.SecurityAccessAsync(0x01, seed => seed); // Placeholder
+                // Security access for VIN operations
+                Log($"  [{item.ModuleName}] Requesting security access...");
+                var securityResponse = await client.SecurityAccessAsync(
+                    FcaSecurityAccess.LevelVinAccess,
+                    FcaSecurityAccess.GetKeyCalculator(FcaSecurityAccess.LevelVinAccess));
+
+                if (!securityResponse.IsPositive)
+                {
+                    item.Status = "SEC FAIL";
+                    Log($"  [{item.ModuleName}] Security access denied: {securityResponse.NegativeResponseCode}");
+                    continue;
+                }
+
+                Log($"  [{item.ModuleName}] Security access granted. Writing VIN...");
 
                 // Write VIN
                 var response = await client.WriteVinAsync(newVin);
@@ -1735,6 +1762,7 @@ public class MockCanAdapter : ICanAdapter
         {
             UdsServiceId.TesterPresent => [0x7E, 0x00],
             UdsServiceId.DiagnosticSessionControl when data.Length >= 2 => [0x50, data[1], 0x00, 0x19, 0x01, 0xF4],
+            UdsServiceId.SecurityAccess when data.Length >= 2 => HandleSecurityAccess(data),
             UdsServiceId.ReadDtcInformation when rxId == 0x7E8 => [0x59, 0x02, 0xFF, 0x03, 0x00, 0x00, 0x08, 0x01, 0x71, 0x00, 0x08],
             UdsServiceId.ReadDtcInformation => [0x59, 0x02, 0xFF],
             UdsServiceId.ClearDiagnosticInformation => [0x54],
@@ -1744,6 +1772,24 @@ public class MockCanAdapter : ICanAdapter
         };
 
         return Task.FromResult(response);
+    }
+
+    private byte[]? HandleSecurityAccess(byte[] data)
+    {
+        var subFunction = data[1];
+
+        // Odd sub-function = request seed
+        if ((subFunction & 0x01) != 0)
+        {
+            // Return a simulated seed
+            return [0x67, subFunction, 0x12, 0x34, 0x56, 0x78];
+        }
+        // Even sub-function = send key (always accept in demo mode)
+        else
+        {
+            // Accept any key in demo mode
+            return [0x67, subFunction];
+        }
     }
 
     private byte[]? HandleReadDataByIdentifier(uint rxId, byte[] data)

@@ -244,7 +244,7 @@
                         <Button x:Name="btnNavWriteVin" Content="Write VIN" Style="{StaticResource SidebarButton}"
                                 Click="BtnWriteVin_Click"/>
 
-                        <TextBlock Text="EFD FILES" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
+                        <TextBlock Text="MODULE FLASHING" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
                         <Button x:Name="btnNavLoadEfd" Content="Load EFD File" Style="{StaticResource SidebarButton}"
                                 Click="BtnLoadEfd_Click"/>
                         <Button x:Name="btnNavFlashEfd" Content="Flash to ECU" Style="{StaticResource SidebarButton}"
@@ -252,7 +252,7 @@
                         <Button x:Name="btnNavSaveEfd" Content="Save ECU to EFD" Style="{StaticResource SidebarButton}"
                                 Click="BtnSaveEfd_Click"/>
 
-                        <TextBlock Text="PROGRAMMING" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
+                        <TextBlock Text="MODULE CLONING" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
                         <Button x:Name="btnNavReadEprom" Content="Read EPROM" Style="{StaticResource SidebarButton}"
                                 Click="BtnReadEprom_Click"/>
                         <Button x:Name="btnNavWriteEprom" Content="Write EPROM" Style="{StaticResource SidebarButton}"
