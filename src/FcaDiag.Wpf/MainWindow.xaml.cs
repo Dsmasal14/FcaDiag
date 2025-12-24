@@ -29,6 +29,8 @@ public partial class MainWindow : Window
     private readonly int[] _memoryBlocks = new int[8];
     private readonly ObservableCollection<DtcDisplayItem> _dtcList = [];
     private readonly ObservableCollection<VinModuleItem> _vinList = [];
+    private readonly ObservableCollection<ModuleInfoItem> _moduleInfoList = [];
+    private readonly List<ModuleFullInfo> _allModulesInfo = [];
     private string? _connectedDeviceName;
     private string? _connectedVin;
     private EfdFile? _loadedEfd;
@@ -42,6 +44,15 @@ public partial class MainWindow : Window
 
         // Bind VIN list
         dgVinList.ItemsSource = _vinList;
+
+        // Bind Module Info list
+        dgModuleInfo.ItemsSource = _moduleInfoList;
+
+        // Initialize module selector
+        foreach (var module in FcaModuleDatabase.Modules)
+            cboModuleSelect.Items.Add($"{module.ShortName} - {module.Name}");
+        if (cboModuleSelect.Items.Count > 0)
+            cboModuleSelect.SelectedIndex = 0;
 
         // Initialize voltage monitoring timer
         _voltageTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
@@ -1054,6 +1065,452 @@ public partial class MainWindow : Window
 
     #endregion
 
+    #region Module Identification
+
+    private void BtnModuleId_Click(object sender, RoutedEventArgs e)
+    {
+        // Switch to Module ID tab
+        tabRight.SelectedIndex = 1;
+    }
+
+    private async void BtnReadModuleInfo_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected || _adapter == null)
+        {
+            MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (cboModuleSelect.SelectedIndex < 0)
+        {
+            MessageBox.Show("Please select a module", "No Selection", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var module = FcaModuleDatabase.Modules[cboModuleSelect.SelectedIndex];
+        await ReadModuleInfoAsync(module);
+    }
+
+    private async void BtnReadAllModuleInfo_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected || _adapter == null)
+        {
+            MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        btnNavModuleId.IsEnabled = false;
+        _allModulesInfo.Clear();
+        Log("Reading extended identification from all modules...");
+
+        foreach (var module in FcaModuleDatabase.Modules)
+        {
+            try
+            {
+                var client = new UdsClient(_adapter, module, 500);
+                var testerResponse = await client.TesterPresentAsync();
+                if (!testerResponse.IsPositive) continue;
+
+                Log($"Reading {module.ShortName}...");
+                var info = await ReadModuleExtendedInfoAsync(client, module);
+                if (info != null)
+                {
+                    _allModulesInfo.Add(info);
+                    Log($"  [{module.ShortName}] Part#: {info.PartNumber}, SW: {info.SoftwareVersion}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"  [{module.ShortName}] Error: {ex.Message}");
+            }
+        }
+
+        Log($"Extended identification complete. {_allModulesInfo.Count} module(s) read.");
+        btnNavModuleId.IsEnabled = true;
+
+        // Display first module if any
+        if (_allModulesInfo.Count > 0)
+        {
+            DisplayModuleInfo(_allModulesInfo[0]);
+        }
+    }
+
+    private async Task ReadModuleInfoAsync(FcaModuleDefinition module)
+    {
+        btnNavModuleId.IsEnabled = false;
+        _moduleInfoList.Clear();
+        Log($"Reading extended identification from {module.ShortName}...");
+
+        try
+        {
+            var client = new UdsClient(_adapter!, module, 1000);
+
+            // Check if module responds
+            var testerResponse = await client.TesterPresentAsync();
+            if (!testerResponse.IsPositive)
+            {
+                Log($"  [{module.ShortName}] Module not responding.");
+                MessageBox.Show($"Module {module.ShortName} is not responding.", "No Response", MessageBoxButton.OK, MessageBoxImage.Warning);
+                btnNavModuleId.IsEnabled = true;
+                return;
+            }
+
+            var info = await ReadModuleExtendedInfoAsync(client, module);
+            if (info != null)
+            {
+                DisplayModuleInfo(info);
+                Log($"  [{module.ShortName}] Extended identification read successfully.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"  [{module.ShortName}] Error: {ex.Message}");
+            MessageBox.Show($"Error reading module info:\n\n{ex.Message}", "Read Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+
+        btnNavModuleId.IsEnabled = true;
+    }
+
+    private async Task<ModuleFullInfo?> ReadModuleExtendedInfoAsync(UdsClient client, FcaModuleDefinition module)
+    {
+        var info = new ModuleFullInfo { Module = module };
+
+        // Read standard identification DIDs
+        var didsToRead = new (ushort Did, string Name, Action<string> Setter)[]
+        {
+            (0xF190, "VIN", v => info.Vin = v),
+            (0xF187, "Part Number", v => info.PartNumber = v),
+            (0xF18C, "ECU Serial Number", v => info.SerialNumber = v),
+            (0xF191, "ECU Hardware Number", v => info.HardwareNumber = v),
+            (0xF193, "Hardware Version", v => info.HardwareVersion = v),
+            (0xF195, "Software Number", v => info.SoftwareNumber = v),
+            (0xF197, "System Name", v => info.SystemName = v),
+            (0xF199, "Programming Date", v => info.ProgrammingDate = v),
+            (0xF18A, "Supplier ID", v => info.SupplierId = v),
+        };
+
+        foreach (var (did, name, setter) in didsToRead)
+        {
+            try
+            {
+                var response = await client.ReadDataByIdentifierAsync(did);
+                if (response.IsPositive && response.Data.Length > 2)
+                {
+                    var value = ParseDidValue(did, response.Data[2..]);
+                    setter(value);
+                }
+            }
+            catch { }
+            await Task.Delay(20); // Small delay between reads
+        }
+
+        // Try to read FCA-specific DIDs
+        try
+        {
+            var swVerResponse = await client.ReadDataByIdentifierAsync(0xF1A0); // FCA SW version
+            if (swVerResponse.IsPositive && swVerResponse.Data.Length > 2)
+                info.SoftwareVersion = ParseDidValue(0xF1A0, swVerResponse.Data[2..]);
+        }
+        catch { }
+
+        try
+        {
+            var calIdResponse = await client.ReadDataByIdentifierAsync(0xF1A1); // FCA Calibration ID
+            if (calIdResponse.IsPositive && calIdResponse.Data.Length > 2)
+                info.CalibrationId = ParseDidValue(0xF1A1, calIdResponse.Data[2..]);
+        }
+        catch { }
+
+        return info;
+    }
+
+    private static string ParseDidValue(ushort did, byte[] data)
+    {
+        // Programming date is BCD encoded
+        if (did == 0xF199 && data.Length >= 4)
+        {
+            var year = ((data[0] >> 4) * 10) + (data[0] & 0x0F) + 2000;
+            var month = ((data[1] >> 4) * 10) + (data[1] & 0x0F);
+            var day = ((data[2] >> 4) * 10) + (data[2] & 0x0F);
+            return $"{year:D4}-{month:D2}-{day:D2}";
+        }
+
+        // Default: treat as ASCII string
+        return System.Text.Encoding.ASCII.GetString(data).Trim('\0', ' ', '\xFF');
+    }
+
+    private void DisplayModuleInfo(ModuleFullInfo info)
+    {
+        _moduleInfoList.Clear();
+
+        _moduleInfoList.Add(new ModuleInfoItem { Property = "Module", Value = $"{info.Module.ShortName} - {info.Module.Name}" });
+        _moduleInfoList.Add(new ModuleInfoItem { Property = "CAN Address", Value = $"TX: 0x{info.Module.RequestId:X3} / RX: 0x{info.Module.ResponseId:X3}" });
+
+        if (!string.IsNullOrEmpty(info.Vin))
+            _moduleInfoList.Add(new ModuleInfoItem { Property = "VIN", Value = info.Vin });
+        if (!string.IsNullOrEmpty(info.PartNumber))
+            _moduleInfoList.Add(new ModuleInfoItem { Property = "Part Number", Value = info.PartNumber });
+        if (!string.IsNullOrEmpty(info.SerialNumber))
+            _moduleInfoList.Add(new ModuleInfoItem { Property = "Serial Number", Value = info.SerialNumber });
+        if (!string.IsNullOrEmpty(info.HardwareNumber))
+            _moduleInfoList.Add(new ModuleInfoItem { Property = "Hardware Number", Value = info.HardwareNumber });
+        if (!string.IsNullOrEmpty(info.HardwareVersion))
+            _moduleInfoList.Add(new ModuleInfoItem { Property = "Hardware Version", Value = info.HardwareVersion });
+        if (!string.IsNullOrEmpty(info.SoftwareNumber))
+            _moduleInfoList.Add(new ModuleInfoItem { Property = "Software Number", Value = info.SoftwareNumber });
+        if (!string.IsNullOrEmpty(info.SoftwareVersion))
+            _moduleInfoList.Add(new ModuleInfoItem { Property = "Software Version", Value = info.SoftwareVersion });
+        if (!string.IsNullOrEmpty(info.CalibrationId))
+            _moduleInfoList.Add(new ModuleInfoItem { Property = "Calibration ID", Value = info.CalibrationId });
+        if (!string.IsNullOrEmpty(info.SystemName))
+            _moduleInfoList.Add(new ModuleInfoItem { Property = "System Name", Value = info.SystemName });
+        if (!string.IsNullOrEmpty(info.ProgrammingDate))
+            _moduleInfoList.Add(new ModuleInfoItem { Property = "Programming Date", Value = info.ProgrammingDate });
+        if (!string.IsNullOrEmpty(info.SupplierId))
+            _moduleInfoList.Add(new ModuleInfoItem { Property = "Supplier ID", Value = info.SupplierId });
+    }
+
+    private void BtnExportModuleReport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_moduleInfoList.Count == 0 && _allModulesInfo.Count == 0)
+        {
+            MessageBox.Show("No module information to export. Please read module info first.", "No Data", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        try
+        {
+            var printDialog = new PrintDialog();
+            if (printDialog.ShowDialog() != true) return;
+
+            var flowDoc = CreateModuleInfoReportDocument();
+            var paginator = ((IDocumentPaginatorSource)flowDoc).DocumentPaginator;
+            paginator.PageSize = new Size(printDialog.PrintableAreaWidth, printDialog.PrintableAreaHeight);
+
+            printDialog.PrintDocument(paginator, "Module Report - StellaFlash");
+
+            Log("Module report sent to printer/PDF.");
+            MessageBox.Show("Report exported successfully!", "Export Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            Log($"Export error: {ex.Message}");
+            MessageBox.Show($"Failed to export report:\n\n{ex.Message}", "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void BtnModuleInfoReport_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected || _adapter == null)
+        {
+            MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        btnNavModuleReport.IsEnabled = false;
+        _allModulesInfo.Clear();
+        Log("Generating Module Information Report...");
+        Log("Scanning and reading extended identification from all modules...");
+
+        // Scan and read all responding modules
+        foreach (var module in FcaModuleDatabase.Modules)
+        {
+            try
+            {
+                var client = new UdsClient(_adapter, module, 500);
+                var testerResponse = await client.TesterPresentAsync();
+                if (!testerResponse.IsPositive) continue;
+
+                Log($"  Reading {module.ShortName} ({module.Name})...");
+
+                var info = await ReadModuleExtendedInfoAsync(client, module);
+                if (info != null)
+                {
+                    _allModulesInfo.Add(info);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"  [{module.ShortName}] Error: {ex.Message}");
+            }
+        }
+
+        if (_allModulesInfo.Count == 0)
+        {
+            Log("No modules responded. Report not generated.");
+            MessageBox.Show("No modules responded to identification request.", "No Data", MessageBoxButton.OK, MessageBoxImage.Warning);
+            btnNavModuleReport.IsEnabled = true;
+            return;
+        }
+
+        // Generate PDF report
+        try
+        {
+            var printDialog = new PrintDialog();
+            if (printDialog.ShowDialog() != true)
+            {
+                btnNavModuleReport.IsEnabled = true;
+                return;
+            }
+
+            var flowDoc = CreateModuleInfoReportDocument();
+            var paginator = ((IDocumentPaginatorSource)flowDoc).DocumentPaginator;
+            paginator.PageSize = new Size(printDialog.PrintableAreaWidth, printDialog.PrintableAreaHeight);
+
+            printDialog.PrintDocument(paginator, "Module Info Report - StellaFlash");
+
+            Log($"Module Information Report sent to printer/PDF.");
+            Log($"  {_allModulesInfo.Count} module(s) documented.");
+
+            MessageBox.Show(
+                $"Module Information Report generated successfully!\n\n" +
+                $"Modules documented: {_allModulesInfo.Count}",
+                "Report Complete",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            Log($"Report error: {ex.Message}");
+            MessageBox.Show($"Failed to generate report:\n\n{ex.Message}", "Report Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+
+        btnNavModuleReport.IsEnabled = true;
+    }
+
+    private FlowDocument CreateModuleInfoReportDocument()
+    {
+        var doc = new FlowDocument
+        {
+            PagePadding = new Thickness(50),
+            FontFamily = new FontFamily("Segoe UI"),
+            FontSize = 11
+        };
+
+        // Title
+        var title = new Paragraph(new Run("EXTENDED MODULE INFORMATION REPORT"))
+        {
+            FontSize = 20,
+            FontWeight = FontWeights.Bold,
+            TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 5)
+        };
+        doc.Blocks.Add(title);
+
+        // Subtitle
+        var subtitle = new Paragraph(new Run("StellaFlash"))
+        {
+            FontSize = 14,
+            Foreground = new SolidColorBrush(Color.FromRgb(255, 107, 0)),
+            TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 20)
+        };
+        doc.Blocks.Add(subtitle);
+
+        // Report Info
+        var infoSection = new Section();
+        infoSection.Blocks.Add(new Paragraph(new Run($"Date: {DateTime.Now:yyyy-MM-dd HH:mm:ss}")) { Margin = new Thickness(0, 0, 0, 3) });
+        if (!string.IsNullOrEmpty(_connectedDeviceName))
+            infoSection.Blocks.Add(new Paragraph(new Run($"Device: {_connectedDeviceName}")) { Margin = new Thickness(0, 0, 0, 3) });
+        if (!string.IsNullOrEmpty(_connectedVin))
+            infoSection.Blocks.Add(new Paragraph(new Run($"Vehicle VIN: {_connectedVin}")) { Margin = new Thickness(0, 0, 0, 3) });
+        infoSection.Blocks.Add(new Paragraph(new Run($"Modules Found: {_allModulesInfo.Count}")) { Margin = new Thickness(0, 0, 0, 20) });
+        doc.Blocks.Add(infoSection);
+
+        // Module details
+        foreach (var info in _allModulesInfo)
+        {
+            // Module header
+            var moduleHeader = new Paragraph(new Run($"{info.Module.ShortName} - {info.Module.Name}"))
+            {
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                Background = new SolidColorBrush(Color.FromRgb(240, 240, 240)),
+                Padding = new Thickness(8, 5, 8, 5),
+                Margin = new Thickness(0, 10, 0, 5)
+            };
+            doc.Blocks.Add(moduleHeader);
+
+            // Create table for module info
+            var table = new Table { CellSpacing = 0 };
+            table.Columns.Add(new TableColumn { Width = new GridLength(140) });
+            table.Columns.Add(new TableColumn { Width = GridLength.Auto });
+
+            var rowGroup = new TableRowGroup();
+
+            AddModuleInfoRow(rowGroup, "CAN Address", $"TX: 0x{info.Module.RequestId:X3} / RX: 0x{info.Module.ResponseId:X3}");
+            if (!string.IsNullOrEmpty(info.Vin))
+                AddModuleInfoRow(rowGroup, "VIN", info.Vin);
+            if (!string.IsNullOrEmpty(info.PartNumber))
+                AddModuleInfoRow(rowGroup, "Part Number", info.PartNumber);
+            if (!string.IsNullOrEmpty(info.SerialNumber))
+                AddModuleInfoRow(rowGroup, "Serial Number", info.SerialNumber);
+            if (!string.IsNullOrEmpty(info.HardwareNumber))
+                AddModuleInfoRow(rowGroup, "Hardware Number", info.HardwareNumber);
+            if (!string.IsNullOrEmpty(info.HardwareVersion))
+                AddModuleInfoRow(rowGroup, "Hardware Version", info.HardwareVersion);
+            if (!string.IsNullOrEmpty(info.SoftwareNumber))
+                AddModuleInfoRow(rowGroup, "Software Number", info.SoftwareNumber);
+            if (!string.IsNullOrEmpty(info.SoftwareVersion))
+                AddModuleInfoRow(rowGroup, "Software Version", info.SoftwareVersion);
+            if (!string.IsNullOrEmpty(info.CalibrationId))
+                AddModuleInfoRow(rowGroup, "Calibration ID", info.CalibrationId);
+            if (!string.IsNullOrEmpty(info.SystemName))
+                AddModuleInfoRow(rowGroup, "System Name", info.SystemName);
+            if (!string.IsNullOrEmpty(info.ProgrammingDate))
+                AddModuleInfoRow(rowGroup, "Programming Date", info.ProgrammingDate);
+            if (!string.IsNullOrEmpty(info.SupplierId))
+                AddModuleInfoRow(rowGroup, "Supplier", info.SupplierId);
+
+            table.RowGroups.Add(rowGroup);
+            doc.Blocks.Add(table);
+        }
+
+        // Footer
+        var footer = new Paragraph(new Run("\n\nGenerated by StellaFlash - Spot On Auto Diagnostics"))
+        {
+            FontSize = 10,
+            Foreground = Brushes.Gray,
+            TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(0, 30, 0, 0)
+        };
+        doc.Blocks.Add(footer);
+
+        return doc;
+    }
+
+    private static void AddModuleInfoRow(TableRowGroup rowGroup, string label, string value)
+    {
+        var row = new TableRow();
+
+        var labelCell = new TableCell(new Paragraph(new Run(label))
+        {
+            Margin = new Thickness(5, 3, 5, 3)
+        })
+        {
+            BorderBrush = Brushes.LightGray,
+            BorderThickness = new Thickness(0, 0, 0, 1)
+        };
+        labelCell.Blocks.First().FontWeight = FontWeights.SemiBold;
+        labelCell.Blocks.First().Foreground = Brushes.DarkGray;
+
+        var valueCell = new TableCell(new Paragraph(new Run(value))
+        {
+            Margin = new Thickness(5, 3, 5, 3),
+            FontFamily = new FontFamily("Consolas")
+        })
+        {
+            BorderBrush = Brushes.LightGray,
+            BorderThickness = new Thickness(0, 0, 0, 1)
+        };
+
+        row.Cells.Add(labelCell);
+        row.Cells.Add(valueCell);
+        rowGroup.Rows.Add(row);
+    }
+
+    #endregion
+
     #region Voltage Graph
 
     private void VoltageTimer_Tick(object? sender, EventArgs e)
@@ -1210,6 +1667,34 @@ public class VinModuleItem
 }
 
 /// <summary>
+/// Display item for Module Info DataGrid binding
+/// </summary>
+public class ModuleInfoItem
+{
+    public required string Property { get; init; }
+    public required string Value { get; init; }
+}
+
+/// <summary>
+/// Full module identification information
+/// </summary>
+public class ModuleFullInfo
+{
+    public required FcaModuleDefinition Module { get; init; }
+    public string? Vin { get; set; }
+    public string? PartNumber { get; set; }
+    public string? SerialNumber { get; set; }
+    public string? HardwareNumber { get; set; }
+    public string? HardwareVersion { get; set; }
+    public string? SoftwareNumber { get; set; }
+    public string? SoftwareVersion { get; set; }
+    public string? CalibrationId { get; set; }
+    public string? SystemName { get; set; }
+    public string? ProgrammingDate { get; set; }
+    public string? SupplierId { get; set; }
+}
+
+/// <summary>
 /// Mock adapter for demo mode
 /// </summary>
 public class MockCanAdapter : ICanAdapter
@@ -1265,19 +1750,67 @@ public class MockCanAdapter : ICanAdapter
     {
         var did = (ushort)((data[1] << 8) | data[2]);
 
-        // VIN read (DID 0xF190)
-        if (did == 0xF190 && _moduleVins.TryGetValue(rxId, out var vin))
+        // Get module-specific simulated data
+        var moduleData = GetSimulatedModuleData(rxId);
+
+        string? value = did switch
         {
-            var response = new byte[2 + 17]; // Service ID + DID + 17 bytes VIN
+            0xF190 => _moduleVins.TryGetValue(rxId, out var vin) ? vin : null, // VIN
+            0xF187 => moduleData.PartNumber,      // Part Number
+            0xF18C => moduleData.SerialNumber,    // Serial Number
+            0xF191 => moduleData.HardwareNumber,  // Hardware Number
+            0xF193 => moduleData.HardwareVersion, // Hardware Version
+            0xF195 => moduleData.SoftwareNumber,  // Software Number
+            0xF197 => moduleData.SystemName,      // System Name
+            0xF18A => moduleData.SupplierId,      // Supplier ID
+            0xF1A0 => moduleData.SoftwareVersion, // FCA SW Version
+            0xF1A1 => moduleData.CalibrationId,   // FCA Calibration ID
+            _ => null
+        };
+
+        // Special handling for Programming Date (BCD encoded)
+        if (did == 0xF199)
+        {
+            var response = new byte[7]; // Service ID + DID + 4 bytes date
+            response[0] = 0x62;
+            response[1] = data[1];
+            response[2] = data[2];
+            // Date: 2023-06-15 in BCD
+            response[3] = 0x23; // Year
+            response[4] = 0x06; // Month
+            response[5] = 0x15; // Day
+            response[6] = 0x00;
+            return response;
+        }
+
+        if (value != null)
+        {
+            var valueBytes = System.Text.Encoding.ASCII.GetBytes(value);
+            var response = new byte[3 + valueBytes.Length];
             response[0] = 0x62; // Positive response
             response[1] = data[1];
             response[2] = data[2];
-            var vinBytes = System.Text.Encoding.ASCII.GetBytes(vin.PadRight(17));
-            Array.Copy(vinBytes, 0, response, 3, 17);
+            Array.Copy(valueBytes, 0, response, 3, valueBytes.Length);
             return response;
         }
 
         return null;
+    }
+
+    private static (string PartNumber, string SerialNumber, string HardwareNumber, string HardwareVersion,
+        string SoftwareNumber, string SoftwareVersion, string CalibrationId, string SystemName, string SupplierId)
+        GetSimulatedModuleData(uint rxId)
+    {
+        return rxId switch
+        {
+            0x7E8 => ("68352654AE", "TE15C3A4F00123", "68352654AA", "03.02", "68352654AE", "15.27.14", "17RU3614AE", "PCM - Powertrain", "CONTINENTAL"),
+            0x7E9 => ("68277259AB", "TM15C3B2F00456", "68277259AA", "02.01", "68277259AB", "12.15.03", "17RU9148AB", "TCM - Transmission", "ZF"),
+            0x7EA => ("68289633AC", "AB15C3C1F00789", "68289633AA", "01.05", "68289633AC", "08.22.01", "17RU6233AC", "ABS - Brake System", "BOSCH"),
+            0x768 => ("68311231AD", "BC15C3D4F00321", "68311231AB", "04.00", "68311231AD", "21.08.07", "17RU1131AD", "BCM - Body Control", "APTIV"),
+            0x76A => ("68366547AA", "IC15C3E5F00654", "68366547AA", "02.03", "68366547AA", "09.14.22", "17RU6547AA", "IPC - Instrument", "DENSO"),
+            0x728 => ("68225397AH", "RA15C3F6F00987", "68225397AE", "05.12", "68225397AH", "18.45.33", "17RU5397AH", "RADIO - Uconnect", "HARMAN"),
+            _ => ("UNKNOWN", "UNKNOWN", "UNKNOWN", "01.00", "UNKNOWN", "01.00.00", "UNKNOWN", "Unknown Module", "UNKNOWN")
+        };
     }
 
     private byte[]? HandleWriteDataByIdentifier(uint rxId, byte[] data)

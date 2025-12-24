@@ -223,44 +223,50 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Navigation Menu -->
-                <StackPanel Grid.Row="2" Margin="10,15,10,10">
-                    <TextBlock Text="DIAGNOSTICS" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,0,0,8"/>
-                    <Button x:Name="btnNavScan" Content="Scan Modules" Style="{StaticResource SidebarButton}"
-                            Tag="Active" Click="BtnScanModules_Click"/>
-                    <Button x:Name="btnNavDtc" Content="Read DTCs" Style="{StaticResource SidebarButton}"
-                            Click="BtnReadDtc_Click"/>
-                    <Button x:Name="btnNavClearDtc" Content="Clear DTCs" Style="{StaticResource SidebarButton}"
-                            Click="BtnClearDtc_Click"/>
+                <!-- Navigation Menu (Scrollable) -->
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                    <StackPanel Margin="10,5,10,10">
+                        <TextBlock Text="DIAGNOSTICS" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,0,0,8"/>
+                        <Button x:Name="btnNavScan" Content="Scan Modules" Style="{StaticResource SidebarButton}"
+                                Tag="Active" Click="BtnScanModules_Click"/>
+                        <Button x:Name="btnNavModuleId" Content="Module Identification" Style="{StaticResource SidebarButton}"
+                                Click="BtnModuleId_Click"/>
+                        <Button x:Name="btnNavDtc" Content="Read DTCs" Style="{StaticResource SidebarButton}"
+                                Click="BtnReadDtc_Click"/>
+                        <Button x:Name="btnNavClearDtc" Content="Clear DTCs" Style="{StaticResource SidebarButton}"
+                                Click="BtnClearDtc_Click"/>
 
-                    <TextBlock Text="VIN EDITOR" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
-                    <Button x:Name="btnNavReadVin" Content="Read VIN" Style="{StaticResource SidebarButton}"
-                            Click="BtnReadVin_Click"/>
-                    <Button x:Name="btnNavClearVin" Content="Clear VIN" Style="{StaticResource SidebarButton}"
-                            Click="BtnClearVin_Click"/>
-                    <Button x:Name="btnNavWriteVin" Content="Write VIN" Style="{StaticResource SidebarButton}"
-                            Click="BtnWriteVin_Click"/>
+                        <TextBlock Text="VIN EDITOR" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
+                        <Button x:Name="btnNavReadVin" Content="Read VIN" Style="{StaticResource SidebarButton}"
+                                Click="BtnReadVin_Click"/>
+                        <Button x:Name="btnNavClearVin" Content="Clear VIN" Style="{StaticResource SidebarButton}"
+                                Click="BtnClearVin_Click"/>
+                        <Button x:Name="btnNavWriteVin" Content="Write VIN" Style="{StaticResource SidebarButton}"
+                                Click="BtnWriteVin_Click"/>
 
-                    <TextBlock Text="EFD FILES" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
-                    <Button x:Name="btnNavLoadEfd" Content="Load EFD File" Style="{StaticResource SidebarButton}"
-                            Click="BtnLoadEfd_Click"/>
-                    <Button x:Name="btnNavFlashEfd" Content="Flash to ECU" Style="{StaticResource SidebarButton}"
-                            Click="BtnFlashEfd_Click"/>
-                    <Button x:Name="btnNavSaveEfd" Content="Save ECU to EFD" Style="{StaticResource SidebarButton}"
-                            Click="BtnSaveEfd_Click"/>
+                        <TextBlock Text="EFD FILES" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
+                        <Button x:Name="btnNavLoadEfd" Content="Load EFD File" Style="{StaticResource SidebarButton}"
+                                Click="BtnLoadEfd_Click"/>
+                        <Button x:Name="btnNavFlashEfd" Content="Flash to ECU" Style="{StaticResource SidebarButton}"
+                                Click="BtnFlashEfd_Click"/>
+                        <Button x:Name="btnNavSaveEfd" Content="Save ECU to EFD" Style="{StaticResource SidebarButton}"
+                                Click="BtnSaveEfd_Click"/>
 
-                    <TextBlock Text="PROGRAMMING" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
-                    <Button x:Name="btnNavReadEprom" Content="Read EPROM" Style="{StaticResource SidebarButton}"
-                            Click="BtnReadEprom_Click"/>
-                    <Button x:Name="btnNavWriteEprom" Content="Write EPROM" Style="{StaticResource SidebarButton}"
-                            Click="BtnWriteEprom_Click"/>
-                    <Button x:Name="btnNavSwapHw" Content="Swap Hardware" Style="{StaticResource SidebarButton}"
-                            Click="BtnSwapHw_Click"/>
+                        <TextBlock Text="PROGRAMMING" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
+                        <Button x:Name="btnNavReadEprom" Content="Read EPROM" Style="{StaticResource SidebarButton}"
+                                Click="BtnReadEprom_Click"/>
+                        <Button x:Name="btnNavWriteEprom" Content="Write EPROM" Style="{StaticResource SidebarButton}"
+                                Click="BtnWriteEprom_Click"/>
+                        <Button x:Name="btnNavSwapHw" Content="Swap Hardware" Style="{StaticResource SidebarButton}"
+                                Click="BtnSwapHw_Click"/>
 
-                    <TextBlock Text="REPORTS" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
-                    <Button x:Name="btnNavPrintDtc" Content="Print DTC Report" Style="{StaticResource SidebarButton}"
-                            Click="BtnPrintDtc_Click"/>
-                </StackPanel>
+                        <TextBlock Text="REPORTS" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,20,0,8"/>
+                        <Button x:Name="btnNavPrintDtc" Content="Print DTC Report" Style="{StaticResource SidebarButton}"
+                                Click="BtnPrintDtc_Click"/>
+                        <Button x:Name="btnNavModuleReport" Content="Module Info Report" Style="{StaticResource SidebarButton}"
+                                Click="BtnModuleInfoReport_Click"/>
+                    </StackPanel>
+                </ScrollViewer>
 
                 <!-- Version Info -->
                 <StackPanel Grid.Row="3" Margin="15,10,15,15">
@@ -380,6 +386,75 @@
                                             Padding="15,8" Click="BtnClearDtc_Click"/>
                                     <Button Content="Print Report" Style="{StaticResource OrangeButton}"
                                             Padding="15,8" Margin="10,0,0,0" Click="BtnPrintDtc_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </TabItem>
+
+                        <!-- Module ID Tab -->
+                        <TabItem Header="Module ID">
+                            <Grid Margin="0,10,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Text="EXTENDED MODULE IDENTIFICATION" Foreground="#FF8B949E" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                                <!-- Module Selector -->
+                                <Border Grid.Row="1" Background="#FF0D1117" CornerRadius="4" Padding="12" Margin="0,0,0,10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Select Module:" Foreground="#FF8B949E" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <ComboBox x:Name="cboModuleSelect" Grid.Column="1"
+                                                  Background="#FF21262D" Foreground="White"
+                                                  FontSize="12" Padding="8,6"/>
+                                        <Button Grid.Column="2" Content="Read Info" Style="{StaticResource OrangeButton}"
+                                                Padding="15,6" Margin="10,0,0,0" Click="BtnReadModuleInfo_Click"/>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Module Info Display -->
+                                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                                    <DataGrid x:Name="dgModuleInfo"
+                                              AutoGenerateColumns="False"
+                                              IsReadOnly="True"
+                                              CanUserAddRows="False"
+                                              CanUserDeleteRows="False"
+                                              CanUserReorderColumns="False"
+                                              HeadersVisibility="None"
+                                              GridLinesVisibility="Horizontal">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Property" Binding="{Binding Property}" Width="140">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#FF8B949E"/>
+                                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="FontFamily" Value="Consolas"/>
+                                                        <Setter Property="Foreground" Value="#FF00FFAA"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                </ScrollViewer>
+
+                                <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                                    <Button Content="Read All Modules" Style="{StaticResource TealButton}"
+                                            Padding="15,8" Click="BtnReadAllModuleInfo_Click"/>
+                                    <Button Content="Export Report" Style="{StaticResource OrangeButton}"
+                                            Padding="15,8" Margin="10,0,0,0" Click="BtnExportModuleReport_Click"/>
                                 </StackPanel>
                             </Grid>
                         </TabItem>
