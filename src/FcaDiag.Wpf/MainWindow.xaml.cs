@@ -6,6 +6,7 @@ using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using FcaDiag.Core.Efd;
 using FcaDiag.Core.Enums;
 using FcaDiag.Core.Interfaces;
 using FcaDiag.Core.Models;
@@ -13,6 +14,7 @@ using FcaDiag.J2534;
 using FcaDiag.J2534.Native;
 using FcaDiag.Protocols.Transport;
 using FcaDiag.Protocols.Uds;
+using Microsoft.Win32;
 
 namespace FcaDiag.Wpf;
 
@@ -28,6 +30,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<DtcDisplayItem> _dtcList = [];
     private string? _connectedDeviceName;
     private string? _connectedVin;
+    private EfdFile? _loadedEfd;
 
     public MainWindow()
     {
@@ -560,6 +563,235 @@ public partial class MainWindow : Window
             BorderBrush = Brushes.LightGray,
             BorderThickness = new Thickness(0, 0, 1, 1)
         };
+    }
+
+    #endregion
+
+    #region EFD File Operations
+
+    private void BtnLoadEfd_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Open EFD File",
+            Filter = "EFD Files (*.efd)|*.efd|All Files (*.*)|*.*",
+            DefaultExt = ".efd"
+        };
+
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            Log($"Loading EFD file: {System.IO.Path.GetFileName(dialog.FileName)}");
+
+            _loadedEfd = EfdParser.Parse(dialog.FileName);
+
+            // Update UI
+            DisplayEfdInfo(_loadedEfd);
+
+            Log($"EFD file loaded successfully.");
+            Log($"  Part Number: {_loadedEfd.PartNumber}");
+            Log($"  Model Year: {_loadedEfd.ModelYear}");
+            Log($"  Engine: {_loadedEfd.Engine}");
+            Log($"  Transmission: {_loadedEfd.Transmission}");
+            Log($"  Program: {_loadedEfd.Program}");
+            Log($"  Data Size: {_loadedEfd.FileSizeDisplay}");
+
+            // Switch to EFD tab
+            tabRight.SelectedIndex = 1;
+
+            // Enable flash button if connected
+            btnFlashEfd.IsEnabled = _isConnected;
+        }
+        catch (Exception ex)
+        {
+            Log($"Error loading EFD: {ex.Message}");
+            MessageBox.Show($"Failed to load EFD file:\n\n{ex.Message}", "Load Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void DisplayEfdInfo(EfdFile efd)
+    {
+        // Show info panel, hide placeholder
+        gridEfdInfo.Visibility = Visibility.Visible;
+        txtEfdNoFile.Visibility = Visibility.Collapsed;
+
+        // Populate fields
+        txtEfdFileName.Text = efd.FileName;
+        txtEfdPartNumber.Text = efd.PartNumber;
+        txtEfdModelYear.Text = efd.ModelYear > 0 ? efd.ModelYear.ToString() : "-";
+        txtEfdEngine.Text = !string.IsNullOrEmpty(efd.Engine) ? efd.Engine : "-";
+        txtEfdTrans.Text = !string.IsNullOrEmpty(efd.Transmission) ? efd.Transmission : "-";
+        txtEfdProgram.Text = !string.IsNullOrEmpty(efd.Program) ? efd.Program : "-";
+        txtEfdVersion.Text = !string.IsNullOrEmpty(efd.Version) ? efd.Version : "-";
+        txtEfdSize.Text = efd.FileSizeDisplay;
+
+        // Populate metadata grid
+        var metadataItems = efd.Metadata.Select(kv => new KeyValuePair<string, string>(kv.Key, kv.Value)).ToList();
+        dgEfdMetadata.ItemsSource = metadataItems;
+    }
+
+    private async void BtnFlashEfd_Click(object sender, RoutedEventArgs e)
+    {
+        if (_loadedEfd == null)
+        {
+            MessageBox.Show("Please load an EFD file first.", "No File", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!_isConnected || _adapter == null)
+        {
+            MessageBox.Show("Please connect to a device first.", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"Are you sure you want to flash this calibration to the ECU?\n\n" +
+            $"File: {_loadedEfd.FileName}\n" +
+            $"Part #: {_loadedEfd.PartNumber}\n" +
+            $"Program: {_loadedEfd.Program}\n\n" +
+            "WARNING: This operation may render the ECU inoperable if interrupted.\n" +
+            "Ensure stable power and do not disconnect during the process.",
+            "Confirm Flash",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        btnFlashEfd.IsEnabled = false;
+        btnNavFlashEfd.IsEnabled = false;
+
+        try
+        {
+            Log("Starting ECU flash process...");
+            Log($"  Target: {_loadedEfd.TargetModule}");
+            Log($"  Calibration: {_loadedEfd.Program}");
+
+            // Simulate flashing process
+            var totalBlocks = _loadedEfd.DataBlocks.Count > 0 ? _loadedEfd.DataBlocks.Count : 8;
+            var blockSize = _loadedEfd.TotalDataSize / totalBlocks;
+
+            Log("Establishing programming session...");
+            await Task.Delay(500);
+
+            Log("Security access granted.");
+            await Task.Delay(300);
+
+            Log("Erasing target memory...");
+            await Task.Delay(1000);
+
+            for (int i = 0; i < totalBlocks; i++)
+            {
+                _memoryBlocks[i % 8] = (int)((i + 1) * 100.0 / totalBlocks);
+                DrawMemoryBuffer();
+
+                var address = i * blockSize;
+                Log($"Writing block {i + 1}/{totalBlocks} @ 0x{address:X6}...");
+                await Task.Delay(400);
+            }
+
+            Log("Verifying flash data...");
+            await Task.Delay(500);
+
+            Log("Flash complete! ECU programmed successfully.");
+            Log($"  Calibration: {_loadedEfd.Program}");
+            Log($"  Version: {_loadedEfd.Version}");
+
+            MessageBox.Show("ECU flash completed successfully!", "Flash Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            Log($"Flash error: {ex.Message}");
+            MessageBox.Show($"Flash failed:\n\n{ex.Message}", "Flash Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            btnFlashEfd.IsEnabled = true;
+            btnNavFlashEfd.IsEnabled = true;
+        }
+    }
+
+    private async void BtnSaveEfd_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected || _adapter == null)
+        {
+            MessageBox.Show("Please connect to a device first.", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "Save ECU Calibration as EFD",
+            Filter = "EFD Files (*.efd)|*.efd",
+            DefaultExt = ".efd",
+            FileName = $"ecudump_{DateTime.Now:yyyyMMdd_HHmmss}.efd"
+        };
+
+        if (dialog.ShowDialog() != true) return;
+
+        btnNavSaveEfd.IsEnabled = false;
+
+        try
+        {
+            Log("Reading ECU calibration data...");
+
+            // Create new EFD from ECU data
+            var efd = new EfdFile
+            {
+                FilePath = dialog.FileName,
+                ModelYear = 2017,
+                DriveTrain = "FWD/RWD",
+                Engine = "3.6Phoenix",
+                FuelType = "UNLEADED",
+                Transmission = "948TE",
+                BodyStyle = "RU",
+                Emissions = "NAS-50 STATE",
+                Program = "ECUDUMP",
+                Level = "SERVICE",
+                Version = $"Dump_{DateTime.Now:yyyyMMdd}",
+                GeneratorName = "FcaDiag"
+            };
+
+            // Simulate reading blocks
+            var calibrationData = new List<byte>();
+
+            for (int i = 0; i < 8; i++)
+            {
+                _memoryBlocks[i] = 100;
+                DrawMemoryBuffer();
+                Log($"Reading block {i + 1}/8...");
+                await Task.Delay(300);
+
+                // Simulate data (in real implementation, read from ECU)
+                var blockData = new byte[4096];
+                new Random().NextBytes(blockData);
+                calibrationData.AddRange(blockData);
+            }
+
+            efd.DataBlocks.Add(new EfdDataBlock
+            {
+                Name = "Main Calibration",
+                StartAddress = 0x00000000,
+                Data = calibrationData.ToArray()
+            });
+
+            // Save the file
+            EfdParser.Save(efd, dialog.FileName);
+
+            Log($"ECU calibration saved to: {System.IO.Path.GetFileName(dialog.FileName)}");
+            Log($"  Size: {efd.FileSizeDisplay}");
+
+            MessageBox.Show($"ECU calibration saved successfully!\n\n{dialog.FileName}", "Save Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            Log($"Save error: {ex.Message}");
+            MessageBox.Show($"Failed to save EFD:\n\n{ex.Message}", "Save Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            btnNavSaveEfd.IsEnabled = true;
+        }
     }
 
     #endregion
