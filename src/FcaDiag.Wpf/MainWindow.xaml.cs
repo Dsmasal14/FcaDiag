@@ -241,14 +241,18 @@ public partial class MainWindow : Window
             else
             {
                 var device = _devices[combo.SelectedIndex - 1];
+                Log($"Connecting to {device.Name}...");
+                Log($"DLL: {device.DllPath}");
+
                 var j2534 = new J2534Adapter(device);
-                if (!await j2534.ConnectAsync(new ConnectionSettings { AdapterType = "ISO15765", Bitrate = 500000 }))
-                    throw new Exception("Connection failed");
+                await j2534.ConnectAsync(new ConnectionSettings { AdapterType = "ISO15765", Bitrate = 500000 });
 
                 _adapter = j2534;
                 _connectedDeviceName = device.Name;
-                Log($"Connected to {device.Name}");
-                Log($"Firmware: {j2534.FirmwareVersion}");
+                LogActivity("Connected to J2534 device", "Connection", device.Name);
+                Log($"Firmware: {j2534.FirmwareVersion ?? "N/A"}");
+                Log($"DLL Version: {j2534.DllVersion ?? "N/A"}");
+                Log($"API Version: {j2534.ApiVersion ?? "N/A"}");
                 UpdateConnectionStatus(true, device.Name);
                 UpdateTitle($"{device.Name} - Connected");
             }

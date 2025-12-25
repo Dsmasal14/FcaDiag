@@ -53,14 +53,15 @@ public class J2534Adapter : ICanAdapter
 
         // Load the J2534 DLL
         if (!_api.Load(_device.DllPath))
-            return false;
+            throw new InvalidOperationException($"Failed to load J2534 DLL: {_device.DllPath}\nMake sure the device drivers are installed.");
 
         // Open device
         var result = _api.PassThruOpen(out _deviceId);
         if (result != J2534Error.STATUS_NOERROR)
         {
+            var errorMsg = GetErrorDescription(result);
             _api.Unload();
-            return false;
+            throw new InvalidOperationException($"Failed to open device: {errorMsg}\nMake sure the device is connected via USB and powered on.");
         }
 
         // Read version info
@@ -84,9 +85,10 @@ public class J2534Adapter : ICanAdapter
         result = _api.PassThruConnect(_deviceId, _protocol, flags, (uint)settings.Bitrate, out _channelId);
         if (result != J2534Error.STATUS_NOERROR)
         {
+            var errorMsg = GetErrorDescription(result);
             _api.PassThruClose(_deviceId);
             _api.Unload();
-            return false;
+            throw new InvalidOperationException($"Failed to connect to vehicle: {errorMsg}\nMake sure the OBD-II cable is connected to the vehicle and ignition is ON.");
         }
 
         // Clear buffers
@@ -95,6 +97,41 @@ public class J2534Adapter : ICanAdapter
 
         _isConnected = true;
         return true;
+    }
+
+    private static string GetErrorDescription(J2534Error error)
+    {
+        return error switch
+        {
+            J2534Error.STATUS_NOERROR => "No error",
+            J2534Error.ERR_NOT_SUPPORTED => "Function not supported",
+            J2534Error.ERR_INVALID_CHANNEL_ID => "Invalid channel ID",
+            J2534Error.ERR_INVALID_PROTOCOL_ID => "Invalid protocol ID",
+            J2534Error.ERR_NULL_PARAMETER => "Null parameter passed",
+            J2534Error.ERR_INVALID_IOCTL_VALUE => "Invalid IOCTL value",
+            J2534Error.ERR_INVALID_FLAGS => "Invalid flags",
+            J2534Error.ERR_FAILED => "General failure - device may not be connected",
+            J2534Error.ERR_DEVICE_NOT_CONNECTED => "Device not connected - check USB connection",
+            J2534Error.ERR_TIMEOUT => "Operation timed out - check vehicle connection",
+            J2534Error.ERR_INVALID_MSG => "Invalid message format",
+            J2534Error.ERR_INVALID_TIME_INTERVAL => "Invalid time interval",
+            J2534Error.ERR_EXCEEDED_LIMIT => "Exceeded limit",
+            J2534Error.ERR_INVALID_MSG_ID => "Invalid message ID",
+            J2534Error.ERR_DEVICE_IN_USE => "Device is in use by another application",
+            J2534Error.ERR_INVALID_IOCTL_ID => "Invalid IOCTL ID",
+            J2534Error.ERR_BUFFER_EMPTY => "Buffer empty",
+            J2534Error.ERR_BUFFER_FULL => "Buffer full",
+            J2534Error.ERR_BUFFER_OVERFLOW => "Buffer overflow",
+            J2534Error.ERR_PIN_INVALID => "Invalid pin configuration",
+            J2534Error.ERR_CHANNEL_IN_USE => "Channel already in use",
+            J2534Error.ERR_MSG_PROTOCOL_ID => "Message protocol ID mismatch",
+            J2534Error.ERR_INVALID_FILTER_ID => "Invalid filter ID",
+            J2534Error.ERR_NO_FLOW_CONTROL => "No flow control filter set",
+            J2534Error.ERR_NOT_UNIQUE => "Filter not unique",
+            J2534Error.ERR_INVALID_BAUDRATE => "Invalid baud rate",
+            J2534Error.ERR_INVALID_DEVICE_ID => "Invalid device ID",
+            _ => $"Unknown error (0x{(int)error:X4})"
+        };
     }
 
     public async Task DisconnectAsync()
