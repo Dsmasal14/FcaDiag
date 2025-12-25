@@ -9,6 +9,7 @@ using System.Windows.Threading;
 using FcaDiag.Core.Efd;
 using FcaDiag.Core.Enums;
 using FcaDiag.Core.Interfaces;
+using FcaDiag.Core.Licensing;
 using FcaDiag.Core.Models;
 using static FcaDiag.Core.Enums.FcaCanNetwork;
 using FcaDiag.J2534;
@@ -25,7 +26,7 @@ public partial class MainWindow : Window
     private ICanAdapter? _adapter;
     private bool _isConnected;
     private List<J2534Device> _devices = [];
-    private readonly DispatcherTimer _voltageTimer;
+    private readonly DispatcherTimer _voltageTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly List<double> _voltageHistory = [];
     private readonly Random _random = new();
     private readonly int[] _memoryBlocks = new int[8];
@@ -38,10 +39,18 @@ public partial class MainWindow : Window
     private string? _connectedDeviceName;
     private string? _connectedVin;
     private EfdFile? _loadedEfd;
+    private LicenseValidationResult? _currentLicense;
 
     public MainWindow()
     {
         InitializeComponent();
+
+        // Check license before allowing use
+        if (!CheckAndActivateLicense())
+        {
+            Close();
+            return;
+        }
 
         // Bind DTC list
         dgDtcList.ItemsSource = _dtcList;
@@ -64,7 +73,6 @@ public partial class MainWindow : Window
             cboRebootModule.SelectedIndex = 0;
 
         // Initialize voltage monitoring timer
-        _voltageTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _voltageTimer.Tick += VoltageTimer_Tick;
 
         // Initialize memory blocks
@@ -85,8 +93,189 @@ public partial class MainWindow : Window
         };
 
         Log("> System Ready...");
+        Log($"> License: {_currentLicense?.Type} - Valid until {(_currentLicense?.ExpiryDate == DateTime.MaxValue ? "Lifetime" : _currentLicense?.ExpiryDate.ToString("yyyy-MM-dd"))}");
         Log("> Waiting for vehicle connection...");
     }
+
+    #region License Management
+
+    private bool CheckAndActivateLicense()
+    {
+        // Check for saved license
+        var savedLicense = LicenseManager.CheckSavedLicense();
+        if (savedLicense.IsValid)
+        {
+            _currentLicense = savedLicense;
+            return true;
+        }
+
+        // No valid license - show activation dialog
+        return ShowLicenseActivationDialog();
+    }
+
+    private bool ShowLicenseActivationDialog()
+    {
+        while (true)
+        {
+            var dialog = new Window
+            {
+                Title = "StellaFlash - License Activation",
+                Width = 500,
+                Height = 380,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                Background = new SolidColorBrush(Color.FromRgb(13, 17, 23)),
+                ResizeMode = ResizeMode.NoResize,
+                WindowStyle = WindowStyle.ToolWindow
+            };
+
+            var mainStack = new StackPanel { Margin = new Thickness(30) };
+
+            // Logo/Title
+            var titleStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 20) };
+            titleStack.Children.Add(new TextBlock
+            {
+                Text = "STELLAFLASH",
+                FontSize = 28,
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromRgb(255, 107, 0)),
+                HorizontalAlignment = HorizontalAlignment.Center
+            });
+            titleStack.Children.Add(new TextBlock
+            {
+                Text = "License Activation Required",
+                FontSize = 14,
+                Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 5, 0, 0)
+            });
+            mainStack.Children.Add(titleStack);
+
+            // License key input
+            mainStack.Children.Add(new TextBlock
+            {
+                Text = "Enter your license key:",
+                Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217)),
+                FontSize = 13,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+
+            var txtLicenseKey = new TextBox
+            {
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 16,
+                FontWeight = FontWeights.Bold,
+                CharacterCasing = CharacterCasing.Upper,
+                Background = new SolidColorBrush(Color.FromRgb(33, 38, 45)),
+                Foreground = new SolidColorBrush(Color.FromRgb(0, 255, 170)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(48, 54, 61)),
+                Padding = new Thickness(12, 10, 12, 10),
+                MaxLength = 29, // XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+                TextAlignment = TextAlignment.Center
+            };
+            mainStack.Children.Add(txtLicenseKey);
+
+            // Status message
+            var txtStatus = new TextBlock
+            {
+                Text = "",
+                FontSize = 12,
+                Margin = new Thickness(0, 10, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            mainStack.Children.Add(txtStatus);
+
+            // Buttons
+            var buttonStack = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 25, 0, 0)
+            };
+
+            var btnActivate = new Button
+            {
+                Content = "Activate License",
+                Width = 150,
+                Padding = new Thickness(15, 12, 15, 12),
+                Background = new SolidColorBrush(Color.FromRgb(255, 107, 0)),
+                Foreground = Brushes.White,
+                FontWeight = FontWeights.SemiBold,
+                BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+
+            var btnExit = new Button
+            {
+                Content = "Exit",
+                Width = 100,
+                Padding = new Thickness(15, 12, 15, 12),
+                Background = new SolidColorBrush(Color.FromRgb(48, 54, 61)),
+                Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158)),
+                BorderThickness = new Thickness(0),
+                Margin = new Thickness(15, 0, 0, 0),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+
+            btnActivate.Click += (s, ev) =>
+            {
+                var key = txtLicenseKey.Text.Trim();
+                if (string.IsNullOrEmpty(key))
+                {
+                    txtStatus.Text = "Please enter a license key.";
+                    txtStatus.Foreground = new SolidColorBrush(Color.FromRgb(255, 85, 85));
+                    return;
+                }
+
+                var result = LicenseManager.ValidateLicense(key);
+                if (result.IsValid)
+                {
+                    // Save the license
+                    LicenseManager.SaveLicense(key);
+                    _currentLicense = result;
+                    dialog.DialogResult = true;
+                    dialog.Close();
+                }
+                else
+                {
+                    txtStatus.Text = result.Message;
+                    txtStatus.Foreground = new SolidColorBrush(Color.FromRgb(255, 85, 85));
+                }
+            };
+
+            btnExit.Click += (s, ev) =>
+            {
+                dialog.DialogResult = false;
+                dialog.Close();
+            };
+
+            buttonStack.Children.Add(btnActivate);
+            buttonStack.Children.Add(btnExit);
+            mainStack.Children.Add(buttonStack);
+
+            // Footer
+            mainStack.Children.Add(new TextBlock
+            {
+                Text = "Contact Spot On Auto Diagnostics for licensing inquiries.",
+                FontSize = 10,
+                Foreground = new SolidColorBrush(Color.FromRgb(102, 102, 102)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 30, 0, 0)
+            });
+
+            dialog.Content = mainStack;
+
+            var dialogResult = dialog.ShowDialog();
+            if (dialogResult == true)
+            {
+                return true;
+            }
+
+            // User clicked Exit
+            return false;
+        }
+    }
+
+    #endregion
 
     private void Log(string message)
     {
