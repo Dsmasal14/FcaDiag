@@ -358,6 +358,8 @@
                                 Click="BtnPrintDtc_Click"/>
                         <Button x:Name="btnNavModuleReport" Content="Module Info Report" Style="{StaticResource SidebarButton}"
                                 Click="BtnModuleInfoReport_Click"/>
+                        <Button x:Name="btnNavExportLog" Content="Export Activity Log" Style="{StaticResource SidebarButton}"
+                                Click="BtnExportLog_Click"/>
                     </StackPanel>
                 </ScrollViewer>
 

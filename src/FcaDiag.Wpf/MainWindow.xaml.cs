@@ -33,6 +33,8 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<VinModuleItem> _vinList = [];
     private readonly ObservableCollection<ModuleInfoItem> _moduleInfoList = [];
     private readonly List<ModuleFullInfo> _allModulesInfo = [];
+    private readonly List<ActivityLogEntry> _activityLog = [];
+    private readonly DateTime _sessionStartTime = DateTime.Now;
     private string? _connectedDeviceName;
     private string? _connectedVin;
     private EfdFile? _loadedEfd;
@@ -92,6 +94,32 @@ public partial class MainWindow : Window
         var newLine = message.StartsWith(">") ? message : $"[{timestamp}] > {message}";
         txtTerminal.Text += "\n" + newLine;
         scrollLog.ScrollToEnd();
+
+        // Also add to activity log
+        _activityLog.Add(new ActivityLogEntry
+        {
+            Timestamp = DateTime.Now,
+            Message = message.TrimStart('>', ' '),
+            Category = "System"
+        });
+    }
+
+    private void LogActivity(string action, string category, string details = "")
+    {
+        var entry = new ActivityLogEntry
+        {
+            Timestamp = DateTime.Now,
+            Action = action,
+            Category = category,
+            Details = details,
+            VIN = _connectedVin,
+            Device = _connectedDeviceName
+        };
+        _activityLog.Add(entry);
+
+        // Also show in terminal
+        var message = string.IsNullOrEmpty(details) ? action : $"{action} - {details}";
+        Log(message);
     }
 
     private void UpdateTitle(string status)
@@ -135,7 +163,8 @@ public partial class MainWindow : Window
             }
             UpdateConnectionStatus(false);
             UpdateTitle("Disconnected");
-            Log("Disconnected from device.");
+            LogActivity("Disconnected from device", "Connection", _connectedDeviceName ?? "");
+            _connectedDeviceName = null;
             _dtcList.Clear();
             txtDtcCount.Text = " (0)";
             return;
@@ -200,6 +229,7 @@ public partial class MainWindow : Window
                 await _adapter.ConnectAsync(new ConnectionSettings { AdapterType = "DEMO" });
                 _connectedDeviceName = "Demo Mode";
                 _connectedVin = "1C4RJFAG5FC123456";
+                LogActivity("Connected to device", "Connection", "Demo Mode - 2015 Jeep Grand Cherokee");
                 Log("Protocol: CAN-C detected.");
                 Log("VIN: 1C4RJFAG5FC123456");
                 Log("Vehicle: 2015 Jeep Grand Cherokee");
@@ -1788,6 +1818,91 @@ public partial class MainWindow : Window
         rowGroup.Rows.Add(row);
     }
 
+    private void BtnExportLog_Click(object sender, RoutedEventArgs e)
+    {
+        var saveDialog = new SaveFileDialog
+        {
+            Filter = "Text Files (*.txt)|*.txt|CSV Files (*.csv)|*.csv|All Files (*.*)|*.*",
+            DefaultExt = ".txt",
+            FileName = $"StellaFlash_ActivityLog_{DateTime.Now:yyyyMMdd_HHmmss}"
+        };
+
+        if (saveDialog.ShowDialog() != true) return;
+
+        try
+        {
+            var sessionDuration = DateTime.Now - _sessionStartTime;
+            var isCsv = saveDialog.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase);
+
+            using var writer = new System.IO.StreamWriter(saveDialog.FileName);
+
+            if (isCsv)
+            {
+                // CSV Header
+                writer.WriteLine("Timestamp,Category,Action,Details,VIN,Device");
+
+                foreach (var entry in _activityLog)
+                {
+                    var action = EscapeCsv(entry.Action ?? entry.Message ?? "");
+                    var details = EscapeCsv(entry.Details ?? "");
+                    var vin = EscapeCsv(entry.VIN ?? "");
+                    var device = EscapeCsv(entry.Device ?? "");
+                    writer.WriteLine($"{entry.Timestamp:yyyy-MM-dd HH:mm:ss},{entry.Category},{action},{details},{vin},{device}");
+                }
+            }
+            else
+            {
+                // Text format header
+                writer.WriteLine("═══════════════════════════════════════════════════════════════════");
+                writer.WriteLine("                    STELLAFLASH ACTIVITY LOG                       ");
+                writer.WriteLine("                   Spot On Auto Diagnostics                        ");
+                writer.WriteLine("═══════════════════════════════════════════════════════════════════");
+                writer.WriteLine();
+                writer.WriteLine($"Session Start:    {_sessionStartTime:yyyy-MM-dd HH:mm:ss}");
+                writer.WriteLine($"Export Time:      {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                writer.WriteLine($"Session Duration: {sessionDuration.Hours:D2}:{sessionDuration.Minutes:D2}:{sessionDuration.Seconds:D2}");
+                writer.WriteLine($"Total Activities: {_activityLog.Count}");
+                if (!string.IsNullOrEmpty(_connectedDeviceName))
+                    writer.WriteLine($"Device:           {_connectedDeviceName}");
+                if (!string.IsNullOrEmpty(_connectedVin))
+                    writer.WriteLine($"Vehicle VIN:      {_connectedVin}");
+                writer.WriteLine();
+                writer.WriteLine("───────────────────────────────────────────────────────────────────");
+                writer.WriteLine("                         ACTIVITY LOG                              ");
+                writer.WriteLine("───────────────────────────────────────────────────────────────────");
+                writer.WriteLine();
+
+                foreach (var entry in _activityLog)
+                {
+                    var action = entry.Action ?? entry.Message ?? "";
+                    writer.WriteLine($"[{entry.Timestamp:HH:mm:ss}] [{entry.Category,-12}] {action}");
+                    if (!string.IsNullOrEmpty(entry.Details))
+                        writer.WriteLine($"           └─ {entry.Details}");
+                }
+
+                writer.WriteLine();
+                writer.WriteLine("───────────────────────────────────────────────────────────────────");
+                writer.WriteLine("                        END OF LOG                                 ");
+                writer.WriteLine("═══════════════════════════════════════════════════════════════════");
+            }
+
+            LogActivity("Exported activity log", "Export", $"File: {saveDialog.FileName}");
+            MessageBox.Show($"Activity log exported successfully.\n\nFile: {saveDialog.FileName}\nEntries: {_activityLog.Count}",
+                "Export Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error exporting log:\n\n{ex.Message}", "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static string EscapeCsv(string value)
+    {
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        return value;
+    }
+
     #endregion
 
     #region Voltage Graph
@@ -1931,6 +2046,20 @@ public class DtcDisplayItem
     public string? ModuleName { get; init; }
     public bool IsConfirmed { get; init; }
     public bool IsPending { get; init; }
+}
+
+/// <summary>
+/// Activity log entry for tracking user actions
+/// </summary>
+public class ActivityLogEntry
+{
+    public DateTime Timestamp { get; init; }
+    public string? Action { get; init; }
+    public string? Message { get; init; }
+    public string Category { get; init; } = "General";
+    public string? Details { get; init; }
+    public string? VIN { get; init; }
+    public string? Device { get; init; }
 }
 
 /// <summary>
