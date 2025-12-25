@@ -10,6 +10,7 @@ using FcaDiag.Core.Efd;
 using FcaDiag.Core.Enums;
 using FcaDiag.Core.Interfaces;
 using FcaDiag.Core.Models;
+using static FcaDiag.Core.Enums.FcaCanNetwork;
 using FcaDiag.J2534;
 using FcaDiag.J2534.Native;
 using FcaDiag.Protocols.Security;
@@ -49,11 +50,16 @@ public partial class MainWindow : Window
         // Bind Module Info list
         dgModuleInfo.ItemsSource = _moduleInfoList;
 
-        // Initialize module selector
+        // Initialize module selectors
         foreach (var module in FcaModuleDatabase.Modules)
+        {
             cboModuleSelect.Items.Add($"{module.ShortName} - {module.Name}");
+            cboRebootModule.Items.Add($"{module.ShortName} - {module.Name}");
+        }
         if (cboModuleSelect.Items.Count > 0)
             cboModuleSelect.SelectedIndex = 0;
+        if (cboRebootModule.Items.Count > 0)
+            cboRebootModule.SelectedIndex = 0;
 
         // Initialize voltage monitoring timer
         _voltageTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
@@ -315,6 +321,7 @@ public partial class MainWindow : Window
         }
 
         btnNavScan.IsEnabled = false;
+        _onlineModules.Clear();
         Log("Scanning for ECU modules...");
 
         int found = 0;
@@ -327,6 +334,7 @@ public partial class MainWindow : Window
                 if (response.IsPositive)
                 {
                     found++;
+                    _onlineModules.Add(module.ResponseId);
                     Log($"  Found: {module.ShortName} ({module.Name}) @ 0x{module.RequestId:X3}");
                 }
             }
@@ -334,6 +342,10 @@ public partial class MainWindow : Window
         }
 
         Log($"Scan complete. {found} module(s) responding.");
+
+        // Update topology if visible
+        PopulateTopology();
+
         btnNavScan.IsEnabled = true;
     }
 
@@ -1120,12 +1132,224 @@ public partial class MainWindow : Window
 
     #endregion
 
+    #region Network Topology
+
+    private readonly HashSet<uint> _onlineModules = [];
+
+    private void BtnTopology_Click(object sender, RoutedEventArgs e)
+    {
+        PopulateTopology();
+        tabRight.SelectedIndex = 1; // Topology tab
+    }
+
+    private async void BtnRebootModule_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected || _adapter == null)
+        {
+            MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (cboRebootModule.SelectedIndex < 0)
+        {
+            MessageBox.Show("Please select a module to reboot", "No Selection", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var module = FcaModuleDatabase.Modules[cboRebootModule.SelectedIndex];
+        var resetType = cboResetType.SelectedIndex switch
+        {
+            0 => (byte)0x01, // Hard Reset
+            1 => (byte)0x02, // Key Off/On Reset
+            2 => (byte)0x03, // Soft Reset
+            _ => (byte)0x01
+        };
+        var resetTypeName = cboResetType.SelectedIndex switch
+        {
+            0 => "Hard Reset",
+            1 => "Key Off/On Reset",
+            2 => "Soft Reset",
+            _ => "Reset"
+        };
+
+        var result = MessageBox.Show(
+            $"Are you sure you want to reboot the {module.ShortName}?\n\n" +
+            $"Module: {module.Name}\n" +
+            $"Reset Type: {resetTypeName}\n\n" +
+            "WARNING: This will restart the selected ECU module.\n" +
+            "The module may be temporarily unavailable.",
+            "Confirm Module Reboot",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        try
+        {
+            Log($"Rebooting {module.ShortName} ({resetTypeName})...");
+
+            var client = new UdsClient(_adapter, module, 2000);
+
+            // Start extended session first (required for ECU Reset on most modules)
+            await client.StartSessionAsync(DiagnosticSessionType.Extended);
+            await Task.Delay(50);
+
+            // Send ECU Reset command
+            var response = await client.EcuResetAsync(resetType);
+
+            if (response.IsPositive)
+            {
+                Log($"  [{module.ShortName}] Reboot command sent successfully.");
+                Log($"  [{module.ShortName}] Module is restarting...");
+
+                // Mark module as offline temporarily
+                _onlineModules.Remove(module.ResponseId);
+                PopulateTopology();
+
+                // Wait a moment then check if module comes back online
+                await Task.Delay(2000);
+
+                var checkClient = new UdsClient(_adapter, module, 500);
+                var checkResponse = await checkClient.TesterPresentAsync();
+                if (checkResponse.IsPositive)
+                {
+                    _onlineModules.Add(module.ResponseId);
+                    Log($"  [{module.ShortName}] Module is back online.");
+                    PopulateTopology();
+                }
+                else
+                {
+                    Log($"  [{module.ShortName}] Module still restarting or offline.");
+                }
+
+                MessageBox.Show($"{module.ShortName} reboot command sent successfully.", "Reboot Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                Log($"  [{module.ShortName}] Reboot failed: {response.NegativeResponseCode}");
+                MessageBox.Show($"Reboot failed: {response.NegativeResponseCode}", "Reboot Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"  [{module.ShortName}] Error: {ex.Message}");
+            MessageBox.Show($"Error rebooting module:\n\n{ex.Message}", "Reboot Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void PopulateTopology()
+    {
+        pnlCanC.Children.Clear();
+        pnlCanIhs.Children.Clear();
+        pnlCanB.Children.Clear();
+
+        foreach (var module in FcaModuleDatabase.Modules)
+        {
+            var isOnline = _onlineModules.Contains(module.ResponseId);
+            var moduleCard = CreateModuleCard(module, isOnline);
+
+            switch (module.Network)
+            {
+                case FcaCanNetwork.CanC:
+                    pnlCanC.Children.Add(moduleCard);
+                    break;
+                case FcaCanNetwork.CanIhs:
+                    pnlCanIhs.Children.Add(moduleCard);
+                    break;
+                case FcaCanNetwork.CanB:
+                    pnlCanB.Children.Add(moduleCard);
+                    break;
+            }
+        }
+    }
+
+    private Border CreateModuleCard(FcaModuleDefinition module, bool isOnline)
+    {
+        var networkColor = module.Network switch
+        {
+            FcaCanNetwork.CanC => Color.FromRgb(255, 107, 0),    // Orange
+            FcaCanNetwork.CanIhs => Color.FromRgb(0, 165, 165),  // Teal
+            FcaCanNetwork.CanB => Color.FromRgb(155, 89, 182),   // Purple
+            _ => Color.FromRgb(102, 102, 102)                     // Gray
+        };
+
+        var statusColor = isOnline
+            ? Color.FromRgb(39, 201, 63)   // Green
+            : Color.FromRgb(102, 102, 102); // Gray
+
+        var card = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(33, 38, 45)),
+            BorderBrush = new SolidColorBrush(isOnline ? statusColor : Color.FromRgb(48, 54, 61)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(10, 8, 10, 8),
+            Margin = new Thickness(0, 0, 8, 8),
+            MinWidth = 100
+        };
+
+        var stack = new StackPanel();
+
+        // Module name with status indicator
+        var headerStack = new StackPanel { Orientation = Orientation.Horizontal };
+        headerStack.Children.Add(new Ellipse
+        {
+            Width = 8,
+            Height = 8,
+            Fill = new SolidColorBrush(statusColor),
+            Margin = new Thickness(0, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        headerStack.Children.Add(new TextBlock
+        {
+            Text = module.ShortName,
+            Foreground = Brushes.White,
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 12
+        });
+        stack.Children.Add(headerStack);
+
+        // Full name
+        stack.Children.Add(new TextBlock
+        {
+            Text = module.Name,
+            Foreground = new SolidColorBrush(Color.FromRgb(139, 148, 158)),
+            FontSize = 9,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 120,
+            Margin = new Thickness(14, 2, 0, 0)
+        });
+
+        // CAN IDs
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"0x{module.RequestId:X3} / 0x{module.ResponseId:X3}",
+            Foreground = new SolidColorBrush(Color.FromRgb(0, 255, 170)),
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 9,
+            Margin = new Thickness(14, 4, 0, 0)
+        });
+
+        card.Child = stack;
+
+        // Tooltip with more info
+        card.ToolTip = $"{module.Name}\n" +
+                       $"Network: {module.Network}\n" +
+                       $"TX: 0x{module.RequestId:X3}\n" +
+                       $"RX: 0x{module.ResponseId:X3}\n" +
+                       $"Status: {(isOnline ? "Online" : "Offline")}";
+
+        return card;
+    }
+
+    #endregion
+
     #region Module Identification
 
     private void BtnModuleId_Click(object sender, RoutedEventArgs e)
     {
         // Switch to Module ID tab
-        tabRight.SelectedIndex = 1;
+        tabRight.SelectedIndex = 2;
     }
 
     private async void BtnReadModuleInfo_Click(object sender, RoutedEventArgs e)
@@ -1807,6 +2031,7 @@ public class MockCanAdapter : ICanAdapter
             UdsServiceId.TesterPresent => [0x7E, 0x00],
             UdsServiceId.DiagnosticSessionControl when data.Length >= 2 => [0x50, data[1], 0x00, 0x19, 0x01, 0xF4],
             UdsServiceId.SecurityAccess when data.Length >= 2 => HandleSecurityAccess(data),
+            UdsServiceId.EcuReset when data.Length >= 2 => [0x51, data[1]], // Positive response for ECU Reset
             UdsServiceId.ReadDtcInformation when rxId == 0x7E8 => [0x59, 0x02, 0xFF, 0x03, 0x00, 0x00, 0x08, 0x01, 0x71, 0x00, 0x08],
             UdsServiceId.ReadDtcInformation => [0x59, 0x02, 0xFF],
             UdsServiceId.ClearDiagnosticInformation => [0x54],

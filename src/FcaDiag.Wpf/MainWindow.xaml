@@ -186,6 +186,97 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- ComboBox Toggle Button Template -->
+        <ControlTemplate x:Key="ComboBoxToggleButton" TargetType="ToggleButton">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition Width="20"/>
+                </Grid.ColumnDefinitions>
+                <Border x:Name="Border" Grid.ColumnSpan="2" Background="#FF21262D"
+                        BorderBrush="#FF30363D" BorderThickness="1" CornerRadius="4"/>
+                <Path x:Name="Arrow" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                      Data="M 0 0 L 4 4 L 8 0 Z" Fill="White"/>
+            </Grid>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Border" Property="Background" Value="#FF30363D"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+
+        <!-- ComboBox Style for Dark Theme -->
+        <Style TargetType="ComboBox">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="#FF21262D"/>
+            <Setter Property="BorderBrush" Value="#FF30363D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="ToggleButton" Template="{StaticResource ComboBoxToggleButton}"
+                                          Focusable="False" ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"/>
+                            <ContentPresenter x:Name="ContentSite" IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                              Margin="10,6,25,6" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                <ContentPresenter.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </Style>
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                            <Popup x:Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                                <Grid x:Name="DropDown" SnapsToDevicePixels="True"
+                                      MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                    <Border x:Name="DropDownBorder" Background="#FF21262D"
+                                            BorderBrush="#FF30363D" BorderThickness="1" CornerRadius="4"/>
+                                    <ScrollViewer Margin="4" SnapsToDevicePixels="True">
+                                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#FF21262D"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}" BorderThickness="0" CornerRadius="2">
+                            <ContentPresenter>
+                                <ContentPresenter.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </Style>
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#FFFF6B00"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#FF30363D"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -229,6 +320,8 @@
                         <TextBlock Text="DIAGNOSTICS" FontSize="10" FontWeight="SemiBold" Foreground="#FF666666" Margin="5,0,0,8"/>
                         <Button x:Name="btnNavScan" Content="Scan Modules" Style="{StaticResource SidebarButton}"
                                 Tag="Active" Click="BtnScanModules_Click"/>
+                        <Button x:Name="btnNavTopology" Content="Network Topology" Style="{StaticResource SidebarButton}"
+                                Click="BtnTopology_Click"/>
                         <Button x:Name="btnNavModuleId" Content="Module Identification" Style="{StaticResource SidebarButton}"
                                 Click="BtnModuleId_Click"/>
                         <Button x:Name="btnNavDtc" Content="Read DTCs" Style="{StaticResource SidebarButton}"
@@ -387,6 +480,120 @@
                                     <Button Content="Print Report" Style="{StaticResource OrangeButton}"
                                             Padding="15,8" Margin="10,0,0,0" Click="BtnPrintDtc_Click"/>
                                 </StackPanel>
+                            </Grid>
+                        </TabItem>
+
+                        <!-- Topology Tab -->
+                        <TabItem Header="Topology">
+                            <Grid Margin="0,10,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Text="MODULE NETWORK TOPOLOGY" Foreground="#FF8B949E" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                                <!-- Module Reboot Control -->
+                                <Border Grid.Row="1" Background="#FF0D1117" CornerRadius="4" Padding="12" Margin="0,0,0,10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Reboot Module:" Foreground="#FF8B949E" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <ComboBox x:Name="cboRebootModule" Grid.Column="1"
+                                                  Background="#FF21262D" Foreground="White"
+                                                  FontSize="12" Padding="8,6"/>
+                                        <ComboBox x:Name="cboResetType" Grid.Column="2"
+                                                  Background="#FF21262D" Foreground="White"
+                                                  FontSize="12" Padding="8,6" Width="120" Margin="10,0,0,0">
+                                            <ComboBoxItem Content="Hard Reset" IsSelected="True"/>
+                                            <ComboBoxItem Content="Key Off/On"/>
+                                            <ComboBoxItem Content="Soft Reset"/>
+                                        </ComboBox>
+                                        <Button Grid.Column="3" Content="Reboot" Style="{StaticResource OrangeButton}"
+                                                Padding="15,6" Margin="10,0,0,0" Click="BtnRebootModule_Click"/>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Network Legend -->
+                                <Border Grid.Row="2" Background="#FF0D1117" CornerRadius="4" Padding="10" Margin="0,0,0,10">
+                                    <StackPanel Orientation="Horizontal">
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,20,0">
+                                            <Ellipse Width="12" Height="12" Fill="#FFFF6B00" Margin="0,0,5,0"/>
+                                            <TextBlock Text="CAN-C (Powertrain)" Foreground="#FF8B949E" FontSize="10"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,20,0">
+                                            <Ellipse Width="12" Height="12" Fill="#FF00A5A5" Margin="0,0,5,0"/>
+                                            <TextBlock Text="CAN-IHS (Interior)" Foreground="#FF8B949E" FontSize="10"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,20,0">
+                                            <Ellipse Width="12" Height="12" Fill="#FF9B59B6" Margin="0,0,5,0"/>
+                                            <TextBlock Text="CAN-B (Body)" Foreground="#FF8B949E" FontSize="10"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Ellipse Width="12" Height="12" Fill="#FF27C93F" Margin="0,0,5,0"/>
+                                            <TextBlock Text="Online" Foreground="#FF8B949E" FontSize="10"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Network Topology Display -->
+                                <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel x:Name="pnlTopology" Margin="0,0,0,10">
+                                        <!-- CAN-C Network -->
+                                        <Border Background="#FF1A1A1A" CornerRadius="6" Padding="12" Margin="0,0,0,10">
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                                    <Border Background="#FFFF6B00" CornerRadius="3" Padding="8,4">
+                                                        <TextBlock Text="CAN-C" Foreground="White" FontWeight="Bold" FontSize="11"/>
+                                                    </Border>
+                                                    <TextBlock Text="High-Speed Powertrain Network (500 kbps)" Foreground="#FF666666" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                                </StackPanel>
+                                                <Border Background="#FF0D1117" CornerRadius="4" Padding="2" Height="4" Margin="0,0,0,8"/>
+                                                <WrapPanel x:Name="pnlCanC">
+                                                    <!-- Modules populated dynamically -->
+                                                </WrapPanel>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- CAN-IHS Network -->
+                                        <Border Background="#FF1A1A1A" CornerRadius="6" Padding="12" Margin="0,0,0,10">
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                                    <Border Background="#FF00A5A5" CornerRadius="3" Padding="8,4">
+                                                        <TextBlock Text="CAN-IHS" Foreground="White" FontWeight="Bold" FontSize="11"/>
+                                                    </Border>
+                                                    <TextBlock Text="Interior High-Speed Network (500 kbps)" Foreground="#FF666666" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                                </StackPanel>
+                                                <Border Background="#FF0D1117" CornerRadius="4" Padding="2" Height="4" Margin="0,0,0,8"/>
+                                                <WrapPanel x:Name="pnlCanIhs">
+                                                    <!-- Modules populated dynamically -->
+                                                </WrapPanel>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <!-- CAN-B Network -->
+                                        <Border Background="#FF1A1A1A" CornerRadius="6" Padding="12" Margin="0,0,0,10">
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                                    <Border Background="#FF9B59B6" CornerRadius="3" Padding="8,4">
+                                                        <TextBlock Text="CAN-B" Foreground="White" FontWeight="Bold" FontSize="11"/>
+                                                    </Border>
+                                                    <TextBlock Text="Body/Comfort Network (125 kbps)" Foreground="#FF666666" FontSize="10" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                                </StackPanel>
+                                                <Border Background="#FF0D1117" CornerRadius="4" Padding="2" Height="4" Margin="0,0,0,8"/>
+                                                <WrapPanel x:Name="pnlCanB">
+                                                    <!-- Modules populated dynamically -->
+                                                </WrapPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </ScrollViewer>
                             </Grid>
                         </TabItem>
 
