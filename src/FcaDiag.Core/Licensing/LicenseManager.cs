@@ -331,12 +331,14 @@ public static class LicenseFeatures
 {
     /// <summary>
     /// Check if a feature is available for the given license type
+    /// Trial: Basic diagnostics only
+    /// Professional/Enterprise/Lifetime: Full access (difference is expiration only)
     /// </summary>
     public static bool IsFeatureAvailable(LicenseType licenseType, LicenseFeature feature)
     {
         return feature switch
         {
-            // Basic features - available to all valid licenses
+            // Basic features - available to all valid licenses (including Trial)
             LicenseFeature.ScanModules => licenseType >= LicenseType.Trial,
             LicenseFeature.ReadDtcs => licenseType >= LicenseType.Trial,
             LicenseFeature.ClearDtcs => licenseType >= LicenseType.Trial,
@@ -345,21 +347,22 @@ public static class LicenseFeatures
             LicenseFeature.PrintDtcReport => licenseType >= LicenseType.Trial,
             LicenseFeature.ExportActivityLog => licenseType >= LicenseType.Trial,
 
-            // Professional features
+            // Full features - available to Professional, Enterprise, and Lifetime
+            // Professional: 1 year license
+            // Enterprise: 1 year license
+            // Lifetime: Never expires
             LicenseFeature.ReadVin => licenseType >= LicenseType.Professional,
             LicenseFeature.ClearVin => licenseType >= LicenseType.Professional,
             LicenseFeature.WriteVin => licenseType >= LicenseType.Professional,
             LicenseFeature.LoadEfdFile => licenseType >= LicenseType.Professional,
             LicenseFeature.ModuleInfoReport => licenseType >= LicenseType.Professional,
-
-            // Enterprise/Lifetime features
-            LicenseFeature.FlashEcu => licenseType >= LicenseType.Enterprise,
-            LicenseFeature.SaveEcuToEfd => licenseType >= LicenseType.Enterprise,
-            LicenseFeature.ReadEprom => licenseType >= LicenseType.Enterprise,
-            LicenseFeature.WriteEprom => licenseType >= LicenseType.Enterprise,
-            LicenseFeature.SwapHardware => licenseType >= LicenseType.Enterprise,
-            LicenseFeature.RebootModule => licenseType >= LicenseType.Enterprise,
-            LicenseFeature.BatchOperations => licenseType >= LicenseType.Enterprise,
+            LicenseFeature.FlashEcu => licenseType >= LicenseType.Professional,
+            LicenseFeature.SaveEcuToEfd => licenseType >= LicenseType.Professional,
+            LicenseFeature.ReadEprom => licenseType >= LicenseType.Professional,
+            LicenseFeature.WriteEprom => licenseType >= LicenseType.Professional,
+            LicenseFeature.SwapHardware => licenseType >= LicenseType.Professional,
+            LicenseFeature.RebootModule => licenseType >= LicenseType.Professional,
+            LicenseFeature.BatchOperations => licenseType >= LicenseType.Professional,
 
             _ => false
         };
@@ -372,6 +375,7 @@ public static class LicenseFeatures
     {
         return feature switch
         {
+            // Basic features available to Trial
             LicenseFeature.ScanModules or
             LicenseFeature.ReadDtcs or
             LicenseFeature.ClearDtcs or
@@ -380,13 +384,8 @@ public static class LicenseFeatures
             LicenseFeature.PrintDtcReport or
             LicenseFeature.ExportActivityLog => LicenseType.Trial,
 
-            LicenseFeature.ReadVin or
-            LicenseFeature.ClearVin or
-            LicenseFeature.WriteVin or
-            LicenseFeature.LoadEfdFile or
-            LicenseFeature.ModuleInfoReport => LicenseType.Professional,
-
-            _ => LicenseType.Enterprise
+            // All other features require Professional or higher
+            _ => LicenseType.Professional
         };
     }
 
