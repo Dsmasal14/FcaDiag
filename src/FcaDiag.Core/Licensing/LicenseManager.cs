@@ -292,3 +292,131 @@ public enum LicenseType
     Enterprise,
     Lifetime
 }
+
+/// <summary>
+/// Features that can be gated by license type
+/// </summary>
+public enum LicenseFeature
+{
+    // Basic features (Trial+)
+    ScanModules,
+    ReadDtcs,
+    ClearDtcs,
+    NetworkTopology,
+    ModuleIdentification,
+    PrintDtcReport,
+    ExportActivityLog,
+
+    // Professional features
+    ReadVin,
+    ClearVin,
+    WriteVin,
+    LoadEfdFile,
+    ModuleInfoReport,
+
+    // Enterprise features
+    FlashEcu,
+    SaveEcuToEfd,
+    ReadEprom,
+    WriteEprom,
+    SwapHardware,
+    RebootModule,
+    BatchOperations
+}
+
+/// <summary>
+/// License feature access control
+/// </summary>
+public static class LicenseFeatures
+{
+    /// <summary>
+    /// Check if a feature is available for the given license type
+    /// </summary>
+    public static bool IsFeatureAvailable(LicenseType licenseType, LicenseFeature feature)
+    {
+        return feature switch
+        {
+            // Basic features - available to all valid licenses
+            LicenseFeature.ScanModules => licenseType >= LicenseType.Trial,
+            LicenseFeature.ReadDtcs => licenseType >= LicenseType.Trial,
+            LicenseFeature.ClearDtcs => licenseType >= LicenseType.Trial,
+            LicenseFeature.NetworkTopology => licenseType >= LicenseType.Trial,
+            LicenseFeature.ModuleIdentification => licenseType >= LicenseType.Trial,
+            LicenseFeature.PrintDtcReport => licenseType >= LicenseType.Trial,
+            LicenseFeature.ExportActivityLog => licenseType >= LicenseType.Trial,
+
+            // Professional features
+            LicenseFeature.ReadVin => licenseType >= LicenseType.Professional,
+            LicenseFeature.ClearVin => licenseType >= LicenseType.Professional,
+            LicenseFeature.WriteVin => licenseType >= LicenseType.Professional,
+            LicenseFeature.LoadEfdFile => licenseType >= LicenseType.Professional,
+            LicenseFeature.ModuleInfoReport => licenseType >= LicenseType.Professional,
+
+            // Enterprise/Lifetime features
+            LicenseFeature.FlashEcu => licenseType >= LicenseType.Enterprise,
+            LicenseFeature.SaveEcuToEfd => licenseType >= LicenseType.Enterprise,
+            LicenseFeature.ReadEprom => licenseType >= LicenseType.Enterprise,
+            LicenseFeature.WriteEprom => licenseType >= LicenseType.Enterprise,
+            LicenseFeature.SwapHardware => licenseType >= LicenseType.Enterprise,
+            LicenseFeature.RebootModule => licenseType >= LicenseType.Enterprise,
+            LicenseFeature.BatchOperations => licenseType >= LicenseType.Enterprise,
+
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Get the minimum license type required for a feature
+    /// </summary>
+    public static LicenseType GetRequiredLicense(LicenseFeature feature)
+    {
+        return feature switch
+        {
+            LicenseFeature.ScanModules or
+            LicenseFeature.ReadDtcs or
+            LicenseFeature.ClearDtcs or
+            LicenseFeature.NetworkTopology or
+            LicenseFeature.ModuleIdentification or
+            LicenseFeature.PrintDtcReport or
+            LicenseFeature.ExportActivityLog => LicenseType.Trial,
+
+            LicenseFeature.ReadVin or
+            LicenseFeature.ClearVin or
+            LicenseFeature.WriteVin or
+            LicenseFeature.LoadEfdFile or
+            LicenseFeature.ModuleInfoReport => LicenseType.Professional,
+
+            _ => LicenseType.Enterprise
+        };
+    }
+
+    /// <summary>
+    /// Get feature description for display
+    /// </summary>
+    public static string GetFeatureDescription(LicenseFeature feature)
+    {
+        return feature switch
+        {
+            LicenseFeature.ScanModules => "Scan Modules",
+            LicenseFeature.ReadDtcs => "Read DTCs",
+            LicenseFeature.ClearDtcs => "Clear DTCs",
+            LicenseFeature.NetworkTopology => "Network Topology",
+            LicenseFeature.ModuleIdentification => "Module Identification",
+            LicenseFeature.PrintDtcReport => "Print DTC Report",
+            LicenseFeature.ExportActivityLog => "Export Activity Log",
+            LicenseFeature.ReadVin => "Read VIN",
+            LicenseFeature.ClearVin => "Clear VIN",
+            LicenseFeature.WriteVin => "Write VIN",
+            LicenseFeature.LoadEfdFile => "Load EFD File",
+            LicenseFeature.ModuleInfoReport => "Module Info Report",
+            LicenseFeature.FlashEcu => "Flash ECU",
+            LicenseFeature.SaveEcuToEfd => "Save ECU to EFD",
+            LicenseFeature.ReadEprom => "Read EPROM",
+            LicenseFeature.WriteEprom => "Write EPROM",
+            LicenseFeature.SwapHardware => "Swap Hardware",
+            LicenseFeature.RebootModule => "Reboot Module",
+            LicenseFeature.BatchOperations => "Batch Operations",
+            _ => feature.ToString()
+        };
+    }
+}

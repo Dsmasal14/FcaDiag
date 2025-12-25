@@ -92,6 +92,9 @@ public partial class MainWindow : Window
             DrawMemoryBuffer();
         };
 
+        // Update button states based on license level
+        UpdateFeatureButtonStates();
+
         Log("> System Ready...");
         Log($"> License: {_currentLicense?.Type} - Valid until {(_currentLicense?.ExpiryDate == DateTime.MaxValue ? "Lifetime" : _currentLicense?.ExpiryDate.ToString("yyyy-MM-dd"))}");
         Log("> Waiting for vehicle connection...");
@@ -111,6 +114,119 @@ public partial class MainWindow : Window
 
         // No valid license - show activation dialog
         return ShowLicenseActivationDialog();
+    }
+
+    private bool CheckFeatureAccess(LicenseFeature feature)
+    {
+        if (_currentLicense == null || !_currentLicense.IsValid)
+        {
+            ShowUpgradeDialog("No valid license", "Please activate a valid license to use this feature.");
+            return false;
+        }
+
+        if (LicenseFeatures.IsFeatureAvailable(_currentLicense.Type, feature))
+        {
+            return true;
+        }
+
+        var requiredLicense = LicenseFeatures.GetRequiredLicense(feature);
+        var featureName = LicenseFeatures.GetFeatureDescription(feature);
+        ShowUpgradeDialog(
+            $"{featureName} - Upgrade Required",
+            $"This feature requires a {requiredLicense} license or higher.\n\n" +
+            $"Your current license: {_currentLicense.Type}\n\n" +
+            "Contact Spot On Auto Diagnostics to upgrade your license."
+        );
+        return false;
+    }
+
+    private void ShowUpgradeDialog(string title, string message)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 450,
+            Height = 280,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            Background = new SolidColorBrush(Color.FromRgb(13, 17, 23)),
+            ResizeMode = ResizeMode.NoResize,
+            WindowStyle = WindowStyle.ToolWindow
+        };
+
+        var mainStack = new StackPanel { Margin = new Thickness(25) };
+
+        // Lock icon
+        mainStack.Children.Add(new TextBlock
+        {
+            Text = "🔒",
+            FontSize = 40,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 15)
+        });
+
+        // Message
+        mainStack.Children.Add(new TextBlock
+        {
+            Text = message,
+            Foreground = new SolidColorBrush(Color.FromRgb(201, 209, 217)),
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 20)
+        });
+
+        // OK Button
+        var btnOk = new Button
+        {
+            Content = "OK",
+            Width = 100,
+            Padding = new Thickness(15, 10, 15, 10),
+            Background = new SolidColorBrush(Color.FromRgb(255, 107, 0)),
+            Foreground = Brushes.White,
+            FontWeight = FontWeights.SemiBold,
+            BorderThickness = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Cursor = System.Windows.Input.Cursors.Hand
+        };
+        btnOk.Click += (s, e) => dialog.Close();
+        mainStack.Children.Add(btnOk);
+
+        dialog.Content = mainStack;
+        dialog.ShowDialog();
+    }
+
+    private void UpdateFeatureButtonStates()
+    {
+        if (_currentLicense == null) return;
+
+        // Update sidebar button appearances based on license level
+        UpdateButtonForFeature(btnNavReadVin, LicenseFeature.ReadVin);
+        UpdateButtonForFeature(btnNavClearVin, LicenseFeature.ClearVin);
+        UpdateButtonForFeature(btnNavWriteVin, LicenseFeature.WriteVin);
+        UpdateButtonForFeature(btnNavLoadEfd, LicenseFeature.LoadEfdFile);
+        UpdateButtonForFeature(btnNavFlashEfd, LicenseFeature.FlashEcu);
+        UpdateButtonForFeature(btnNavSaveEfd, LicenseFeature.SaveEcuToEfd);
+        UpdateButtonForFeature(btnNavReadEprom, LicenseFeature.ReadEprom);
+        UpdateButtonForFeature(btnNavWriteEprom, LicenseFeature.WriteEprom);
+        UpdateButtonForFeature(btnNavSwapHw, LicenseFeature.SwapHardware);
+        UpdateButtonForFeature(btnNavModuleReport, LicenseFeature.ModuleInfoReport);
+    }
+
+    private void UpdateButtonForFeature(Button button, LicenseFeature feature)
+    {
+        if (_currentLicense == null) return;
+
+        var isAvailable = LicenseFeatures.IsFeatureAvailable(_currentLicense.Type, feature);
+        if (!isAvailable)
+        {
+            var originalContent = button.Content?.ToString() ?? "";
+            if (!originalContent.EndsWith(" 🔒"))
+            {
+                button.Content = originalContent + " 🔒";
+            }
+            button.Foreground = new SolidColorBrush(Color.FromRgb(102, 102, 102));
+        }
     }
 
     private bool ShowLicenseActivationDialog()
@@ -466,6 +582,8 @@ public partial class MainWindow : Window
 
     private async void BtnReadEprom_Click(object sender, RoutedEventArgs e)
     {
+        if (!CheckFeatureAccess(LicenseFeature.ReadEprom)) return;
+
         if (!_isConnected)
         {
             MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -490,6 +608,8 @@ public partial class MainWindow : Window
 
     private async void BtnWriteEprom_Click(object sender, RoutedEventArgs e)
     {
+        if (!CheckFeatureAccess(LicenseFeature.WriteEprom)) return;
+
         if (!_isConnected)
         {
             MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -518,6 +638,8 @@ public partial class MainWindow : Window
 
     private void BtnSwapHw_Click(object sender, RoutedEventArgs e)
     {
+        if (!CheckFeatureAccess(LicenseFeature.SwapHardware)) return;
+
         if (!_isConnected)
         {
             MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -822,6 +944,8 @@ public partial class MainWindow : Window
 
     private void BtnLoadEfd_Click(object sender, RoutedEventArgs e)
     {
+        if (!CheckFeatureAccess(LicenseFeature.LoadEfdFile)) return;
+
         var dialog = new OpenFileDialog
         {
             Title = "Open EFD File",
@@ -884,6 +1008,8 @@ public partial class MainWindow : Window
 
     private async void BtnFlashEfd_Click(object sender, RoutedEventArgs e)
     {
+        if (!CheckFeatureAccess(LicenseFeature.FlashEcu)) return;
+
         if (_loadedEfd == null)
         {
             MessageBox.Show("Please load an EFD file first.", "No File", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -964,6 +1090,8 @@ public partial class MainWindow : Window
 
     private async void BtnSaveEfd_Click(object sender, RoutedEventArgs e)
     {
+        if (!CheckFeatureAccess(LicenseFeature.SaveEcuToEfd)) return;
+
         if (!_isConnected || _adapter == null)
         {
             MessageBox.Show("Please connect to a device first.", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1085,6 +1213,8 @@ public partial class MainWindow : Window
 
     private async void BtnReadVin_Click(object sender, RoutedEventArgs e)
     {
+        if (!CheckFeatureAccess(LicenseFeature.ReadVin)) return;
+
         if (!_isConnected || _adapter == null)
         {
             MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1145,6 +1275,8 @@ public partial class MainWindow : Window
 
     private async void BtnClearVin_Click(object sender, RoutedEventArgs e)
     {
+        if (!CheckFeatureAccess(LicenseFeature.ClearVin)) return;
+
         if (!_isConnected || _adapter == null)
         {
             MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1230,6 +1362,8 @@ public partial class MainWindow : Window
 
     private async void BtnWriteVin_Click(object sender, RoutedEventArgs e)
     {
+        if (!CheckFeatureAccess(LicenseFeature.WriteVin)) return;
+
         if (!_isConnected || _adapter == null)
         {
             MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1367,6 +1501,8 @@ public partial class MainWindow : Window
 
     private async void BtnRebootModule_Click(object sender, RoutedEventArgs e)
     {
+        if (!CheckFeatureAccess(LicenseFeature.RebootModule)) return;
+
         if (!_isConnected || _adapter == null)
         {
             MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1803,6 +1939,8 @@ public partial class MainWindow : Window
 
     private async void BtnModuleInfoReport_Click(object sender, RoutedEventArgs e)
     {
+        if (!CheckFeatureAccess(LicenseFeature.ModuleInfoReport)) return;
+
         if (!_isConnected || _adapter == null)
         {
             MessageBox.Show("Please connect first", "Not Connected", MessageBoxButton.OK, MessageBoxImage.Warning);
