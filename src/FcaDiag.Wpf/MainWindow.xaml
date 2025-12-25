@@ -8,7 +8,8 @@
         Height="800" Width="1400"
         MinHeight="700" MinWidth="1200"
         WindowStartupLocation="CenterScreen"
-        Background="#FF0D1117">
+        Background="#FF0D1117"
+        Icon="Assets/icon.png">
 
     <Window.Resources>
         <!-- Orange accent color -->
