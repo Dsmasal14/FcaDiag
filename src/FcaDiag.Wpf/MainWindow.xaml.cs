@@ -554,7 +554,11 @@ public partial class MainWindow : Window
                 Log($"DLL: {device.DllPath}");
 
                 var j2534 = new J2534Adapter(device);
-                await j2534.ConnectAsync(new ConnectionSettings { AdapterType = "ISO15765", Bitrate = 500000 });
+
+                // Subscribe to diagnostic logging
+                j2534.DiagnosticLog += (msg) => Dispatcher.Invoke(() => Log($"  [J2534] {msg}"));
+
+                await j2534.ConnectAsync(new ConnectionSettings { AdapterType = "ISO15765", Channel = CanChannel.HS_CAN });
 
                 _adapter = j2534;
                 _connectedDeviceName = device.Name;
@@ -562,6 +566,7 @@ public partial class MainWindow : Window
                 Log($"Firmware: {j2534.FirmwareVersion ?? "N/A"}");
                 Log($"DLL Version: {j2534.DllVersion ?? "N/A"}");
                 Log($"API Version: {j2534.ApiVersion ?? "N/A"}");
+                Log($"Channel: {ConnectionSettings.GetChannelName(j2534.CurrentChannel)}");
                 UpdateConnectionStatus(true, device.Name);
                 UpdateTitle($"{device.Name} - Connected");
             }
@@ -671,26 +676,98 @@ public partial class MainWindow : Window
 
         btnNavScan.IsEnabled = false;
         _onlineModules.Clear();
-        Log("Scanning for ECU modules...");
 
-        int found = 0;
-        foreach (var module in FcaModuleDatabase.Modules)
+        // Get current channel info if J2534 adapter
+        var j2534Adapter = _adapter as J2534Adapter;
+        var channelsToTry = new List<CanChannel>();
+
+        if (j2534Adapter != null)
         {
-            try
-            {
-                var client = new UdsClient(_adapter, module, 200);
-                var response = await client.TesterPresentAsync();
-                if (response.IsPositive)
-                {
-                    found++;
-                    _onlineModules.Add(module.ResponseId);
-                    Log($"  Found: {module.ShortName} ({module.Name}) @ 0x{module.RequestId:X3}");
-                }
-            }
-            catch { }
+            // Try HS-CAN first, then MS-CAN
+            channelsToTry.Add(CanChannel.HS_CAN);
+            channelsToTry.Add(CanChannel.MS_CAN);
+        }
+        else
+        {
+            // Demo mode - just scan once
+            channelsToTry.Add(CanChannel.Auto);
         }
 
-        Log($"Scan complete. {found} module(s) responding.");
+        int totalFound = 0;
+
+        foreach (var channel in channelsToTry)
+        {
+            // Switch channel if J2534 and not already on this channel
+            if (j2534Adapter != null && j2534Adapter.CurrentChannel != channel)
+            {
+                Log($"Switching to {ConnectionSettings.GetChannelName(channel)}...");
+                try
+                {
+                    await j2534Adapter.ReconnectAsync(channel);
+                    Log($"Connected on {ConnectionSettings.GetChannelName(channel)}");
+                }
+                catch (Exception ex)
+                {
+                    Log($"Failed to switch to {ConnectionSettings.GetChannelName(channel)}: {ex.Message}");
+                    continue;
+                }
+            }
+
+            Log($"Scanning for ECU modules on {ConnectionSettings.GetChannelName(channel)}...");
+            Log($"  Sending TesterPresent (0x3E 0x00) to known module addresses...");
+
+            int found = 0;
+            foreach (var module in FcaModuleDatabase.Modules)
+            {
+                try
+                {
+                    Log($"  Probing {module.ShortName} (TX: 0x{module.RequestId:X3}, RX: 0x{module.ResponseId:X3})...");
+                    var client = new UdsClient(_adapter, module, 200);
+                    var response = await client.TesterPresentAsync();
+
+                    if (response.IsPositive)
+                    {
+                        found++;
+                        if (!_onlineModules.Contains(module.ResponseId))
+                        {
+                            _onlineModules.Add(module.ResponseId);
+                        }
+                        Log($"    FOUND: {module.ShortName} ({module.Name}) responding on {ConnectionSettings.GetChannelName(channel)}");
+                    }
+                    else if (response.Data != null && response.Data.Length > 0)
+                    {
+                        var dataHex = BitConverter.ToString(response.Data).Replace("-", " ");
+                        Log($"    Negative response from {module.ShortName}: {dataHex}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"    Error probing {module.ShortName}: {ex.Message}");
+                }
+            }
+
+            Log($"{ConnectionSettings.GetChannelName(channel)} scan: {found} module(s) responding.");
+            totalFound += found;
+
+            // If we found modules, we can stop scanning other channels
+            if (found > 0)
+            {
+                Log($"Modules found on {ConnectionSettings.GetChannelName(channel)}, skipping remaining channels.");
+                break;
+            }
+        }
+
+        if (totalFound == 0)
+        {
+            Log("WARNING: No modules found on any channel.");
+            Log("Possible causes:");
+            Log("  - Ignition not ON (key in RUN position)");
+            Log("  - OBD-II cable not fully connected");
+            Log("  - Vehicle CAN bus not active");
+            Log("  - Wrong protocol (this tool uses ISO 15765-4)");
+        }
+
+        Log($"Scan complete. {totalFound} module(s) responding total.");
 
         // Update topology if visible
         PopulateTopology();

@@ -17,9 +17,27 @@ public class J2534Adapter : ICanAdapter
     private readonly List<uint> _filterIds = [];
 
     private bool _isConnected;
+    private bool _deviceOpened;
     private J2534Protocol _protocol;
+    private CanChannel _currentChannel;
+    private int _currentBitrate;
 
     public bool IsConnected => _isConnected;
+
+    /// <summary>
+    /// Current CAN channel
+    /// </summary>
+    public CanChannel CurrentChannel => _currentChannel;
+
+    /// <summary>
+    /// Current bitrate
+    /// </summary>
+    public int CurrentBitrate => _currentBitrate;
+
+    /// <summary>
+    /// Event for diagnostic logging
+    /// </summary>
+    public event Action<string>? DiagnosticLog;
 
     /// <summary>
     /// Firmware version (available after connect)
@@ -46,31 +64,42 @@ public class J2534Adapter : ICanAdapter
         return await Task.Run(() => Connect(settings), cancellationToken);
     }
 
+    private void Log(string message)
+    {
+        DiagnosticLog?.Invoke(message);
+    }
+
     private bool Connect(ConnectionSettings settings)
     {
         if (_isConnected)
             return true;
 
-        // Load the J2534 DLL
-        if (!_api.Load(_device.DllPath))
-            throw new InvalidOperationException($"Failed to load J2534 DLL: {_device.DllPath}\nMake sure the device drivers are installed.");
-
-        // Open device
-        var result = _api.PassThruOpen(out _deviceId);
-        if (result != J2534Error.STATUS_NOERROR)
+        // Load the J2534 DLL if not already loaded
+        if (!_deviceOpened)
         {
-            var errorMsg = GetErrorDescription(result);
-            _api.Unload();
-            throw new InvalidOperationException($"Failed to open device: {errorMsg}\nMake sure the device is connected via USB and powered on.");
-        }
+            Log($"Loading J2534 DLL: {_device.DllPath}");
+            if (!_api.Load(_device.DllPath))
+                throw new InvalidOperationException($"Failed to load J2534 DLL: {_device.DllPath}\nMake sure the device drivers are installed.");
 
-        // Read version info
-        var version = _api.PassThruReadVersion(_deviceId);
-        if (version.HasValue)
-        {
-            FirmwareVersion = version.Value.Firmware;
-            DllVersion = version.Value.Dll;
-            ApiVersion = version.Value.Api;
+            // Open device
+            var result = _api.PassThruOpen(out _deviceId);
+            if (result != J2534Error.STATUS_NOERROR)
+            {
+                var errorMsg = GetErrorDescription(result);
+                _api.Unload();
+                throw new InvalidOperationException($"Failed to open device: {errorMsg}\nMake sure the device is connected via USB and powered on.");
+            }
+            _deviceOpened = true;
+
+            // Read version info
+            var version = _api.PassThruReadVersion(_deviceId);
+            if (version.HasValue)
+            {
+                FirmwareVersion = version.Value.Firmware;
+                DllVersion = version.Value.Dll;
+                ApiVersion = version.Value.Api;
+                Log($"Device opened - FW: {FirmwareVersion}, DLL: {DllVersion}");
+            }
         }
 
         // Determine protocol based on adapter type
@@ -80,16 +109,29 @@ public class J2534Adapter : ICanAdapter
             _ => J2534Protocol.CAN
         };
 
+        // Determine bitrate based on channel or explicit setting
+        _currentChannel = settings.Channel;
+        _currentBitrate = settings.Channel switch
+        {
+            CanChannel.HS_CAN => 500000,
+            CanChannel.MS_CAN => 125000,
+            CanChannel.SW_CAN => 33333,
+            _ => settings.Bitrate  // Use explicit bitrate for Auto mode
+        };
+
+        Log($"Connecting: Protocol={_protocol}, Channel={settings.Channel}, Bitrate={_currentBitrate}");
+
         // Connect to CAN bus
         var flags = J2534ConnectFlag.NONE;
-        result = _api.PassThruConnect(_deviceId, _protocol, flags, (uint)settings.Bitrate, out _channelId);
-        if (result != J2534Error.STATUS_NOERROR)
+        var result2 = _api.PassThruConnect(_deviceId, _protocol, flags, (uint)_currentBitrate, out _channelId);
+        if (result2 != J2534Error.STATUS_NOERROR)
         {
-            var errorMsg = GetErrorDescription(result);
-            _api.PassThruClose(_deviceId);
-            _api.Unload();
+            var errorMsg = GetErrorDescription(result2);
+            Log($"Connect failed: {errorMsg}");
             throw new InvalidOperationException($"Failed to connect to vehicle: {errorMsg}\nMake sure the OBD-II cable is connected to the vehicle and ignition is ON.");
         }
+
+        Log($"Connected on channel {_channelId}");
 
         // Clear buffers
         _api.PassThruClearTxBuffer(_channelId);
@@ -97,6 +139,45 @@ public class J2534Adapter : ICanAdapter
 
         _isConnected = true;
         return true;
+    }
+
+    /// <summary>
+    /// Disconnect from the current channel (keeps device open for reconnection)
+    /// </summary>
+    public void DisconnectChannel()
+    {
+        if (!_isConnected)
+            return;
+
+        Log($"Disconnecting channel {_channelId}");
+
+        // Remove all filters
+        foreach (var filterId in _filterIds)
+        {
+            _api.PassThruStopMsgFilter(_channelId, filterId);
+        }
+        _filterIds.Clear();
+
+        // Disconnect channel only (keep device open)
+        _api.PassThruDisconnect(_channelId);
+        _isConnected = false;
+    }
+
+    /// <summary>
+    /// Reconnect on a different channel/bitrate
+    /// </summary>
+    public async Task<bool> ReconnectAsync(CanChannel channel, CancellationToken cancellationToken = default)
+    {
+        DisconnectChannel();
+
+        var settings = new ConnectionSettings
+        {
+            AdapterType = "ISO15765",
+            Channel = channel,
+            Bitrate = ConnectionSettings.GetChannelBitrate(channel)
+        };
+
+        return await Task.Run(() => Connect(settings), cancellationToken);
     }
 
     private static string GetErrorDescription(J2534Error error)
@@ -141,22 +222,17 @@ public class J2534Adapter : ICanAdapter
 
     private void Disconnect()
     {
-        if (!_isConnected)
-            return;
+        // Disconnect channel first
+        DisconnectChannel();
 
-        // Remove all filters
-        foreach (var filterId in _filterIds)
+        // Close device
+        if (_deviceOpened)
         {
-            _api.PassThruStopMsgFilter(_channelId, filterId);
+            Log("Closing device");
+            _api.PassThruClose(_deviceId);
+            _api.Unload();
+            _deviceOpened = false;
         }
-        _filterIds.Clear();
-
-        // Disconnect and close
-        _api.PassThruDisconnect(_channelId);
-        _api.PassThruClose(_deviceId);
-        _api.Unload();
-
-        _isConnected = false;
     }
 
     /// <summary>
@@ -257,6 +333,9 @@ public class J2534Adapter : ICanAdapter
         msgData[3] = (byte)canId;
         Array.Copy(data, 0, msgData, 4, data.Length);
 
+        var dataHex = BitConverter.ToString(data).Replace("-", " ");
+        Log($"TX -> 0x{canId:X3}: {dataHex}");
+
         var msg = PassThruMsg.CreateTx(_protocol, msgData,
             _protocol == J2534Protocol.ISO15765 ? J2534TxFlag.ISO15765_FRAME_PAD : J2534TxFlag.NONE);
 
@@ -264,7 +343,10 @@ public class J2534Adapter : ICanAdapter
         var result = _api.PassThruWriteMsgs(_channelId, ref msg, ref numMsgs, 1000);
 
         if (result != J2534Error.STATUS_NOERROR)
+        {
+            Log($"TX ERROR: {GetErrorDescription(result)}");
             throw new IOException($"J2534 write failed: {result}");
+        }
     }
 
     public async Task<byte[]?> ReceiveAsync(uint canId, int timeoutMs, CancellationToken cancellationToken = default)
@@ -283,22 +365,33 @@ public class J2534Adapter : ICanAdapter
         var result = _api.PassThruReadMsgs(_channelId, ref msg, ref numMsgs, (uint)timeoutMs);
 
         if (result == J2534Error.ERR_BUFFER_EMPTY || result == J2534Error.ERR_TIMEOUT)
+        {
+            Log($"RX <- 0x{canId:X3}: (no response - timeout)");
             return null;
+        }
 
         if (result != J2534Error.STATUS_NOERROR || numMsgs == 0)
+        {
+            Log($"RX <- 0x{canId:X3}: (error: {GetErrorDescription(result)})");
             return null;
+        }
 
         // Check if this is our expected response
         if (msg.DataSize < 4)
             return null;
 
         var receivedId = (uint)((msg.Data[0] << 24) | (msg.Data[1] << 16) | (msg.Data[2] << 8) | msg.Data[3]);
-        if (receivedId != canId)
-            return null;
 
         // Return data without CAN ID
         var data = new byte[msg.DataSize - 4];
         Array.Copy(msg.Data, 4, data, 0, data.Length);
+
+        var dataHex = BitConverter.ToString(data).Replace("-", " ");
+        Log($"RX <- 0x{receivedId:X3}: {dataHex}");
+
+        if (receivedId != canId)
+            return null;
+
         return data;
     }
 
