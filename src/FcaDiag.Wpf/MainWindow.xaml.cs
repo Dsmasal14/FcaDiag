@@ -11,6 +11,7 @@ using FcaDiag.Core.Enums;
 using FcaDiag.Core.Interfaces;
 using FcaDiag.Core.Licensing;
 using FcaDiag.Core.Models;
+using FcaDiag.Core.Security;
 using static FcaDiag.Core.Enums.FcaCanNetwork;
 using FcaDiag.J2534;
 using FcaDiag.J2534.Native;
@@ -94,6 +95,9 @@ public partial class MainWindow : Window
 
         // Update button states based on license level
         UpdateFeatureButtonStates();
+
+        // Initialize security tab
+        InitializeSecurityTab();
 
         Log("> System Ready...");
         Log($"> License: {_currentLicense?.Type} - Valid until {(_currentLicense?.ExpiryDate == DateTime.MaxValue ? "Lifetime" : _currentLicense?.ExpiryDate.ToString("yyyy-MM-dd"))}");
@@ -2662,6 +2666,310 @@ public partial class MainWindow : Window
             Canvas.SetLeft(label, x + barWidth / 4 - 5);
             Canvas.SetTop(label, height - 15);
             canvasMemory.Children.Add(label);
+        }
+    }
+
+    #endregion
+
+    #region Security Tab
+
+    private readonly ObservableCollection<SeedKeyPair> _seedKeyPairs = [];
+
+    private void InitializeSecurityTab()
+    {
+        // Load any previously captured pairs
+        SecurityAccessManager.LoadFromFile();
+        RefreshSeedKeyList();
+
+        // Bind the DataGrid
+        if (dgSeedKeyLog != null)
+            dgSeedKeyLog.ItemsSource = _seedKeyPairs;
+    }
+
+    private void RefreshSeedKeyList()
+    {
+        _seedKeyPairs.Clear();
+        foreach (var pair in SecurityAccessManager.GetCapturedPairs())
+        {
+            _seedKeyPairs.Add(pair);
+        }
+    }
+
+    private async void BtnRequestSeed_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected)
+        {
+            MessageBox.Show("Not connected to vehicle!", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var levelStr = (cboSecurityLevel?.SelectedItem as ComboBoxItem)?.Content?.ToString();
+        var level = levelStr switch
+        {
+            "Level 1 (Standard)" => SecurityLevel.Level1_RequestSeed,
+            "Level 3 (Extended)" => SecurityLevel.Level3_RequestSeed,
+            "Level 5 (Programming)" => SecurityLevel.Level5_RequestSeed,
+            "Level 11 (Manufacturer)" => SecurityLevel.Level11_RequestSeed,
+            _ => SecurityLevel.Level5_RequestSeed
+        };
+
+        // Get selected module
+        var moduleIndex = cboModuleSelect.SelectedIndex;
+        if (moduleIndex < 0 || moduleIndex >= FcaModuleDatabase.Modules.Count)
+        {
+            MessageBox.Show("Please select a module first!", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var module = FcaModuleDatabase.Modules[moduleIndex];
+        Log($"> Requesting seed from {module.ShortName} at Level {(int)level}...");
+
+        try
+        {
+            // Send Security Access Request Seed (Service 0x27)
+            var request = new byte[] { 0x27, (byte)level };
+            var response = await SendUdsRequestAsync(module.RequestId, module.ResponseId, request);
+
+            if (response != null && response.Length >= 6 && response[0] == 0x67)
+            {
+                var seed = new byte[response.Length - 2];
+                Array.Copy(response, 2, seed, 0, seed.Length);
+
+                Log($"  Seed received: {BitConverter.ToString(seed).Replace("-", " ")}");
+                txtCurrentSeed.Text = BitConverter.ToString(seed).Replace("-", " ");
+
+                // Calculate key using our algorithm (placeholder)
+                var sendKeyLevel = (SecurityLevel)((int)level + 1);
+                var calculatedKey = SecurityAccessManager.CalculateKey(seed, sendKeyLevel, module.RequestId);
+                txtCalculatedKey.Text = BitConverter.ToString(calculatedKey).Replace("-", " ");
+
+                // Log the attempt
+                SecurityAccessManager.LogAttempt(
+                    module.ShortName,
+                    module.RequestId,
+                    level,
+                    seed,
+                    calculatedKey,
+                    false,
+                    "Seed received, key calculated"
+                );
+
+                RefreshSeedKeyList();
+            }
+            else if (response != null && response[0] == 0x7F)
+            {
+                var nrc = response.Length > 2 ? response[2] : (byte)0;
+                Log($"  Negative response: NRC 0x{nrc:X2}");
+            }
+            else
+            {
+                Log("  No valid response received");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"  Error: {ex.Message}");
+        }
+    }
+
+    private async void BtnUnlockEcu_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isConnected)
+        {
+            MessageBox.Show("Not connected to vehicle!", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var keyText = txtCalculatedKey.Text?.Replace(" ", "").Trim();
+        if (string.IsNullOrEmpty(keyText))
+        {
+            MessageBox.Show("No key available! Request seed first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        // Parse key from hex string
+        byte[] key;
+        try
+        {
+            key = Convert.FromHexString(keyText);
+        }
+        catch
+        {
+            MessageBox.Show("Invalid key format!", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var levelStr = (cboSecurityLevel?.SelectedItem as ComboBoxItem)?.Content?.ToString();
+        var sendKeyLevel = levelStr switch
+        {
+            "Level 1 (Standard)" => SecurityLevel.Level1_SendKey,
+            "Level 3 (Extended)" => SecurityLevel.Level3_SendKey,
+            "Level 5 (Programming)" => SecurityLevel.Level5_SendKey,
+            "Level 11 (Manufacturer)" => SecurityLevel.Level11_SendKey,
+            _ => SecurityLevel.Level5_SendKey
+        };
+
+        var moduleIndex = cboModuleSelect.SelectedIndex;
+        if (moduleIndex < 0 || moduleIndex >= FcaModuleDatabase.Modules.Count)
+        {
+            MessageBox.Show("Please select a module first!", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var module = FcaModuleDatabase.Modules[moduleIndex];
+        Log($"> Sending key to {module.ShortName}...");
+
+        try
+        {
+            // Send Security Access Send Key (Service 0x27, even sub-function)
+            var request = new byte[2 + key.Length];
+            request[0] = 0x27;
+            request[1] = (byte)sendKeyLevel;
+            Array.Copy(key, 0, request, 2, key.Length);
+
+            var response = await SendUdsRequestAsync(module.RequestId, module.ResponseId, request);
+
+            // Parse seed from current display for logging
+            byte[] seed = [];
+            try
+            {
+                var seedText = txtCurrentSeed.Text?.Replace(" ", "").Trim();
+                if (!string.IsNullOrEmpty(seedText))
+                    seed = Convert.FromHexString(seedText);
+            }
+            catch { }
+
+            if (response != null && response.Length >= 2 && response[0] == 0x67)
+            {
+                Log("  Security Access GRANTED!");
+                txtSecurityStatus.Text = "UNLOCKED";
+                txtSecurityStatus.Foreground = Brushes.LimeGreen;
+
+                SecurityAccessManager.LogAttempt(
+                    module.ShortName,
+                    module.RequestId,
+                    sendKeyLevel,
+                    seed,
+                    key,
+                    true,
+                    "Security access granted"
+                );
+            }
+            else if (response != null && response[0] == 0x7F)
+            {
+                var nrc = response.Length > 2 ? response[2] : (byte)0;
+                var nrcName = nrc switch
+                {
+                    0x35 => "Invalid Key",
+                    0x36 => "Exceeded Attempts",
+                    0x37 => "Required Time Delay",
+                    _ => $"NRC 0x{nrc:X2}"
+                };
+                Log($"  Security Access DENIED: {nrcName}");
+                txtSecurityStatus.Text = "LOCKED";
+                txtSecurityStatus.Foreground = Brushes.Red;
+
+                SecurityAccessManager.LogAttempt(
+                    module.ShortName,
+                    module.RequestId,
+                    sendKeyLevel,
+                    seed,
+                    key,
+                    false,
+                    $"Rejected: {nrcName}"
+                );
+            }
+            else
+            {
+                Log("  No valid response received");
+            }
+
+            RefreshSeedKeyList();
+        }
+        catch (Exception ex)
+        {
+            Log($"  Error: {ex.Message}");
+        }
+    }
+
+    private void BtnExportSeedKeyLog_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Filter = "CSV Files (*.csv)|*.csv|All Files (*.*)|*.*",
+            DefaultExt = ".csv",
+            FileName = $"SeedKeyLog_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            try
+            {
+                SecurityAccessManager.ExportToCsv(dialog.FileName);
+                MessageBox.Show($"Exported {_seedKeyPairs.Count} pairs to:\n{dialog.FileName}",
+                    "Export Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+                Log($"> Exported seed/key log to {dialog.FileName}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Export failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
+    private void BtnImportKnownPair_Click(object sender, RoutedEventArgs e)
+    {
+        // Import the known FCA pair from capture
+        SecurityAccessManager.AddKnownPair(
+            FcaSecurityConstants.KnownSeed,
+            FcaSecurityConstants.KnownKey,
+            SecurityLevel.Level5_SendKey,
+            "PCM",
+            0x7E0
+        );
+
+        RefreshSeedKeyList();
+        Log("> Imported known FCA Level 5 seed/key pair from capture");
+        MessageBox.Show("Imported known seed/key pair:\n\n" +
+            $"Seed: {BitConverter.ToString(FcaSecurityConstants.KnownSeed).Replace("-", " ")}\n" +
+            $"Key: {BitConverter.ToString(FcaSecurityConstants.KnownKey).Replace("-", " ")}\n\n" +
+            "This pair was captured from a successful security access session.",
+            "Import Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void BtnAnalyzePairs_Click(object sender, RoutedEventArgs e)
+    {
+        var analysis = SecurityAccessManager.AnalyzeCapturedPairs();
+        MessageBox.Show(analysis, "Seed/Key Analysis", MessageBoxButton.OK, MessageBoxImage.Information);
+        Log("> Generated seed/key analysis report");
+    }
+
+    private void BtnClearSeedKeyLog_Click(object sender, RoutedEventArgs e)
+    {
+        var result = MessageBox.Show("Are you sure you want to clear all captured seed/key pairs?",
+            "Confirm Clear", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            SecurityAccessManager.ClearCapturedPairs();
+            RefreshSeedKeyList();
+            Log("> Cleared seed/key log");
+        }
+    }
+
+    private async Task<byte[]?> SendUdsRequestAsync(uint txId, uint rxId, byte[] request)
+    {
+        if (_adapter == null) return null;
+
+        try
+        {
+            // Use TransactAsync for request/response pattern
+            return await _adapter.TransactAsync(txId, rxId, request, 2000);
+        }
+        catch
+        {
+            // Timeout or error
+            return null;
         }
     }
 

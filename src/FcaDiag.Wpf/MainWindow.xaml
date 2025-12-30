@@ -669,6 +669,167 @@
                             </Grid>
                         </TabItem>
 
+                        <!-- Security Tab -->
+                        <TabItem Header="Security">
+                            <Grid Margin="0,10,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Text="SECURITY ACCESS &amp; SEED/KEY ANALYSIS" Foreground="#FF8B949E" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                                <!-- Security Controls -->
+                                <Border Grid.Row="1" Background="#FF0D1117" CornerRadius="4" Padding="12" Margin="0,0,0,10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Security Level:" Foreground="#FF8B949E" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <ComboBox x:Name="cboSecurityLevel" Grid.Column="1"
+                                                  Background="#FF21262D" Foreground="White"
+                                                  FontSize="12" Padding="8,6" Width="200">
+                                            <ComboBoxItem Content="Level 1 (Standard)" IsSelected="True"/>
+                                            <ComboBoxItem Content="Level 3 (Extended)"/>
+                                            <ComboBoxItem Content="Level 5 (Programming)"/>
+                                            <ComboBoxItem Content="Level 11 (Manufacturer)"/>
+                                        </ComboBox>
+                                        <Button x:Name="btnRequestSeed" Grid.Column="2" Content="Request Seed" Style="{StaticResource TealButton}"
+                                                Padding="15,6" Margin="10,0,0,0" Click="BtnRequestSeed_Click"/>
+                                        <Button x:Name="btnUnlock" Grid.Column="3" Content="Unlock ECU" Style="{StaticResource OrangeButton}"
+                                                Padding="15,6" Margin="10,0,0,0" Click="BtnUnlockEcu_Click"/>
+                                        <Button Grid.Column="4" Content="Export Log" Style="{StaticResource SidebarButton}"
+                                                Padding="15,6" Margin="10,0,0,0" Click="BtnExportSeedKeyLog_Click"/>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Current Seed/Key Display -->
+                                <Border Grid.Row="2" Background="#FF161B22" CornerRadius="4" Padding="12" Margin="0,0,0,10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                            <TextBlock Text="Current Seed:" Foreground="#FF8B949E" FontSize="10" Margin="0,0,0,3"/>
+                                            <TextBox x:Name="txtCurrentSeed"
+                                                     FontFamily="Consolas" FontSize="13"
+                                                     Background="#FF0D1117" Foreground="#FF00FFAA"
+                                                     BorderBrush="#FF30363D" Padding="8,6"
+                                                     IsReadOnly="True" Text="--"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Margin="0,0,10,0">
+                                            <TextBlock Text="Calculated Key:" Foreground="#FF8B949E" FontSize="10" Margin="0,0,0,3"/>
+                                            <TextBox x:Name="txtCalculatedKey"
+                                                     FontFamily="Consolas" FontSize="13"
+                                                     Background="#FF0D1117" Foreground="#FFFF6B00"
+                                                     BorderBrush="#FF30363D" Padding="8,6"
+                                                     Text="--"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                            <TextBlock Text="Status:" Foreground="#FF8B949E" FontSize="10" Margin="0,0,0,3"/>
+                                            <TextBlock x:Name="txtSecurityStatus" Text="LOCKED"
+                                                       FontSize="14" FontWeight="Bold" Foreground="Red"
+                                                       HorizontalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Seed/Key Log -->
+                                <Border Grid.Row="3" Background="#FF0D1117" CornerRadius="4" Margin="0,0,0,10">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+                                        <Border Background="#FF161B22" Padding="10,8">
+                                            <Grid>
+                                                <TextBlock Text="Captured Seed/Key Pairs" Foreground="#FF8B949E" FontSize="11" FontWeight="SemiBold"/>
+                                                <TextBlock x:Name="txtSeedKeyCount" Text="0 pairs" Foreground="#FF666666" FontSize="10" HorizontalAlignment="Right"/>
+                                            </Grid>
+                                        </Border>
+                                        <DataGrid Grid.Row="1" x:Name="dgSeedKeyLog"
+                                                  AutoGenerateColumns="False"
+                                                  IsReadOnly="True"
+                                                  CanUserAddRows="False"
+                                                  CanUserDeleteRows="False"
+                                                  CanUserReorderColumns="False"
+                                                  HeadersVisibility="Column"
+                                                  GridLinesVisibility="Horizontal">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Header="Time" Binding="{Binding Timestamp, StringFormat=HH:mm:ss}" Width="70"/>
+                                                <DataGridTextColumn Header="Module" Binding="{Binding ModuleName}" Width="80"/>
+                                                <DataGridTextColumn Header="Level" Binding="{Binding Level}" Width="50"/>
+                                                <DataGridTextColumn Header="Seed" Binding="{Binding SeedHex}" Width="120">
+                                                    <DataGridTextColumn.ElementStyle>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="FontFamily" Value="Consolas"/>
+                                                            <Setter Property="Foreground" Value="#FF00FFAA"/>
+                                                        </Style>
+                                                    </DataGridTextColumn.ElementStyle>
+                                                </DataGridTextColumn>
+                                                <DataGridTextColumn Header="Key" Binding="{Binding KeyHex}" Width="120">
+                                                    <DataGridTextColumn.ElementStyle>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="FontFamily" Value="Consolas"/>
+                                                            <Setter Property="Foreground" Value="#FFFF6B00"/>
+                                                        </Style>
+                                                    </DataGridTextColumn.ElementStyle>
+                                                </DataGridTextColumn>
+                                                <DataGridTextColumn Header="Status" Binding="{Binding WasAccepted}" Width="70">
+                                                    <DataGridTextColumn.ElementStyle>
+                                                        <Style TargetType="TextBlock">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding WasAccepted}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#FF27C93F"/>
+                                                                    <Setter Property="Text" Value="Accepted"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding WasAccepted}" Value="False">
+                                                                    <Setter Property="Foreground" Value="#FFFF5555"/>
+                                                                    <Setter Property="Text" Value="Rejected"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </DataGridTextColumn.ElementStyle>
+                                                </DataGridTextColumn>
+                                                <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="*"/>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Analysis Panel -->
+                                <Border Grid.Row="4" Background="#FF161B22" CornerRadius="4" Padding="12">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Known FCA Capture:" Foreground="#FF8B949E" FontSize="10" Margin="0,0,0,3"/>
+                                            <TextBlock FontFamily="Consolas" FontSize="11">
+                                                <Run Text="Seed: " Foreground="#FF666666"/>
+                                                <Run Text="CC 55 4A F6" Foreground="#FF00FFAA"/>
+                                                <Run Text="  →  Key: " Foreground="#FF666666"/>
+                                                <Run Text="B5 D9 F5 C6" Foreground="#FFFF6B00"/>
+                                                <Run Text="  (Level 5 Programming)" Foreground="#FF666666"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Import Known Pair" Style="{StaticResource SidebarButton}"
+                                                Padding="10,6" Click="BtnImportKnownPair_Click"/>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </TabItem>
+
                         <!-- VIN Tab -->
                         <TabItem Header="VIN Editor">
                             <Grid Margin="0,10,0,0">
