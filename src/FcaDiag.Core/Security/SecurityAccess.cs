@@ -20,7 +20,9 @@ public enum SecurityLevel
     Level9_RequestSeed = 0x09,
     Level9_SendKey = 0x0A,
     Level11_RequestSeed = 0x0B,  // Extended diagnostic level
-    Level11_SendKey = 0x0C
+    Level11_SendKey = 0x0C,
+    Level99_RequestSeed = 0x63,  // ECU Hero EPROM read level
+    Level99_SendKey = 0x64
 }
 
 /// <summary>
@@ -333,11 +335,13 @@ public static class FcaSecurityConstants
     public const byte ProgrammingLevel = 0x05;
     public const byte ExtendedDiagLevel = 0x0B;
     public const byte ManufacturerLevel = 0x11;
+    public const byte EcuHeroEpromLevel = 0x63;  // ECU Hero EPROM read
 
     // Diagnostic session types
     public const byte DefaultSession = 0x01;
     public const byte ProgrammingSession = 0x02;
     public const byte ExtendedSession = 0x03;
+    public const byte EcuHeroSession = 0x85;  // ECU Hero programming session
 
     // Common FCA diagnostic CAN IDs
     public static readonly Dictionary<uint, string> DiagnosticIds = new()
@@ -355,7 +359,11 @@ public static class FcaSecurityConstants
         [0x7DF] = "Functional Broadcast"
     };
 
-    // Known capture from ASC file
+    // Known capture from ASC file - FCA Level 5 Programming
     public static readonly byte[] KnownSeed = [0xCC, 0x55, 0x4A, 0xF6];
     public static readonly byte[] KnownKey = [0xB5, 0xD9, 0xF5, 0xC6];
+
+    // Known capture from ECU Hero EPROM read - Level 0x63
+    public static readonly byte[] EcuHeroSeed = [0x4A, 0x4D, 0xFF, 0xEA];
+    public static readonly byte[] EcuHeroKey = [0x93, 0xDA, 0x3E, 0x98];
 }

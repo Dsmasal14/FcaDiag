@@ -2919,7 +2919,7 @@ public partial class MainWindow : Window
 
     private void BtnImportKnownPair_Click(object sender, RoutedEventArgs e)
     {
-        // Import the known FCA pair from capture
+        // Import the known FCA Level 5 pair from capture
         SecurityAccessManager.AddKnownPair(
             FcaSecurityConstants.KnownSeed,
             FcaSecurityConstants.KnownKey,
@@ -2928,12 +2928,25 @@ public partial class MainWindow : Window
             0x7E0
         );
 
+        // Import the ECU Hero Level 0x63 pair from capture
+        SecurityAccessManager.AddKnownPair(
+            FcaSecurityConstants.EcuHeroSeed,
+            FcaSecurityConstants.EcuHeroKey,
+            SecurityLevel.Level99_SendKey,
+            "PCM",
+            0x7E0
+        );
+
         RefreshSeedKeyList();
-        Log("> Imported known FCA Level 5 seed/key pair from capture");
-        MessageBox.Show("Imported known seed/key pair:\n\n" +
-            $"Seed: {BitConverter.ToString(FcaSecurityConstants.KnownSeed).Replace("-", " ")}\n" +
-            $"Key: {BitConverter.ToString(FcaSecurityConstants.KnownKey).Replace("-", " ")}\n\n" +
-            "This pair was captured from a successful security access session.",
+        Log("> Imported 2 known seed/key pairs from CAN captures");
+        MessageBox.Show("Imported known seed/key pairs:\n\n" +
+            "FCA Level 5 (Programming):\n" +
+            $"  Seed: {BitConverter.ToString(FcaSecurityConstants.KnownSeed).Replace("-", " ")}\n" +
+            $"  Key:  {BitConverter.ToString(FcaSecurityConstants.KnownKey).Replace("-", " ")}\n\n" +
+            "ECU Hero Level 0x63 (EPROM Read):\n" +
+            $"  Seed: {BitConverter.ToString(FcaSecurityConstants.EcuHeroSeed).Replace("-", " ")}\n" +
+            $"  Key:  {BitConverter.ToString(FcaSecurityConstants.EcuHeroKey).Replace("-", " ")}\n\n" +
+            "These pairs were captured from successful security access sessions.",
             "Import Complete", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
